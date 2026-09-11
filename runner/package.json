@@ -1,0 +1,7 @@
+{
+  "name": "ota-audit-free-runner",
+  "private": true,
+  "type": "module",
+  "scripts": {"audit": "node src/run.js", "test": "node --test"},
+  "dependencies": {"playwright": "1.55.0"}
+}
