@@ -82,6 +82,14 @@ export async function auditHotel(
         channel,
         timeout
       );
+console.log(
+  '[OTA DEBUG]',
+  channel,
+  'selected =',
+  result.url || 'NONE',
+  'candidates =',
+  result.candidates || []
+);
 
       if (!result.url) {
         pages.push(
