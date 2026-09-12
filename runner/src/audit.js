@@ -428,6 +428,151 @@ async function discoverChannel(
   channel,
   timeout
 ) {
+  let directCandidates = [];
+
+  /*
+   * 1. TEST RECHERCHE DIRECTE
+   */
+  try {
+    directCandidates =
+      await directPlatformSearch(
+        browser,
+        hotel,
+        channel,
+        timeout
+      );
+
+    console.log(
+      '[OTA DIRECT]',
+      channel,
+      'count =',
+      directCandidates.length,
+      'results =',
+      directCandidates
+    );
+
+  } catch (error) {
+    console.log(
+      '[OTA DIRECT ERROR]',
+      channel,
+      cleanError(error)
+    );
+
+    directCandidates = [];
+  }
+
+  let candidates = [
+    ...directCandidates
+  ];
+
+  /*
+   * 2. TEST MOTEURS DE RECHERCHE
+   */
+  if (!candidates.length) {
+    for (
+      const query
+      of CHANNELS[channel].queries(hotel)
+    ) {
+      try {
+        const found =
+          await searchWeb(
+            browser,
+            query,
+            channel,
+            hotel,
+            timeout
+          );
+
+        console.log(
+          '[OTA SEARCH]',
+          channel,
+          'query =',
+          query,
+          'count =',
+          found.length,
+          'results =',
+          found
+        );
+
+        candidates.push(
+          ...found
+        );
+
+        if (candidates.length) {
+          break;
+        }
+
+      } catch (error) {
+        console.log(
+          '[OTA SEARCH ERROR]',
+          channel,
+          'query =',
+          query,
+          cleanError(error)
+        );
+      }
+    }
+  }
+
+  const unique =
+    dedupeCandidates(
+      candidates
+    )
+      .filter(
+        candidate =>
+          matchesChannelUrl(
+            candidate.url,
+            channel
+          )
+      )
+      .map(
+        candidate => ({
+          ...candidate,
+
+          ...scoreHotelCandidate(
+            candidate.url,
+            candidate.text,
+            hotel,
+            channel
+          )
+        })
+      )
+      .filter(
+        candidate =>
+          isCredibleHotelCandidate(
+            candidate,
+            hotel
+          )
+      )
+      .sort(
+        (a, b) =>
+          b.score -
+          a.score
+      );
+
+  console.log(
+    '[OTA FINAL]',
+    channel,
+    'count =',
+    unique.length,
+    'results =',
+    unique
+  );
+
+  return {
+    url:
+      unique[0]?.url ||
+      '',
+
+    candidates:
+      unique
+        .slice(0, 5)
+        .map(
+          item =>
+            item.url
+        )
+  };
+} {
   let candidates = [];
 
   try {
