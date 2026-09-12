@@ -1,5 +1,7 @@
 const CHANNELS = {
   booking: {
+    domains: [/booking\.com/i],
+
     queries: h => [
       `site:booking.com/hotel "${h.hotel_name}" "${h.city}"`,
       `"${h.hotel_name}" "${h.city}" Booking.com`
@@ -7,21 +9,37 @@ const CHANNELS = {
   },
 
   expedia: {
+    domains: [
+      /expedia\./i,
+      /hotels\.com/i
+    ],
+
     queries: h => [
       `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
       `site:expedia.com "${h.hotel_name}" "${h.city}"`,
+      `site:hotels.com "${h.hotel_name}" "${h.city}"`,
       `"${h.hotel_name}" "${h.city}" Expedia`
     ]
   },
 
   google: {
+    domains: [
+      /google\.[^/]+\/maps/i,
+      /google\.[^/]+\/travel/i
+    ],
+
     queries: h => [
+      `site:google.fr/travel/hotels "${h.hotel_name}" "${h.city}"`,
+      `site:google.com/travel/hotels "${h.hotel_name}" "${h.city}"`,
+      `site:google.fr/maps "${h.hotel_name}" "${h.city}"`,
       `site:google.com/maps "${h.hotel_name}" "${h.city}"`,
-      `"${h.hotel_name}" "${h.city}" "Google Maps"`
+      `"${h.hotel_name}" "${h.city}" "Google Hotels"`
     ]
   },
 
   tripadvisor: {
+    domains: [/tripadvisor\./i],
+
     queries: h => [
       `site:tripadvisor.fr/Hotel_Review "${h.hotel_name}" "${h.city}"`,
       `site:tripadvisor.com/Hotel_Review "${h.hotel_name}" "${h.city}"`,
@@ -31,40 +49,38 @@ const CHANNELS = {
 };
 
 
-/*
- * ======================================================
- * AUDIT PRINCIPAL
- * ======================================================
- */
-
 export async function auditHotel(
   browser,
   hotel,
   options = {}
 ) {
-  const timeout =
-    options.timeout ?? 30000;
+  const timeout = options.timeout ?? 30000;
 
   const pages = [];
   const limitations = [];
 
   /*
+   * ======================================================
    * 1. SITE OFFICIEL
+   * ======================================================
    */
-  const official =
-    await visit(
-      browser,
-      hotel.website,
-      'official',
-      timeout
-    );
+
+  const official = await visit(
+    browser,
+    hotel.website,
+    'official',
+    timeout
+  );
 
   pages.push(official);
 
 
   /*
-   * 2. RECHERCHE DES CANAUX OTA
+   * ======================================================
+   * 2. DÉCOUVERTE OTA
+   * ======================================================
    */
+
   for (
     const channel of [
       'booking',
@@ -74,13 +90,12 @@ export async function auditHotel(
     ]
   ) {
     try {
-      const result =
-        await discoverChannel(
-          browser,
-          hotel,
-          channel,
-          timeout
-        );
+      const result = await discoverChannel(
+        browser,
+        hotel,
+        channel,
+        timeout
+      );
 
       if (!result.url) {
         pages.push(
@@ -93,18 +108,16 @@ export async function auditHotel(
         continue;
       }
 
-      const page =
-        await visit(
-          browser,
-          result.url,
-          channel,
-          timeout
-        );
+      const page = await visit(
+        browser,
+        result.url,
+        channel,
+        timeout
+      );
 
       /*
-       * Si une véritable page OTA a été chargée,
-       * on vérifie qu'elle semble bien correspondre
-       * à l'hôtel demandé.
+       * Vérification que la page correspond
+       * réellement à l'hôtel recherché.
        */
       if (page.ok) {
         const confidence =
@@ -117,8 +130,8 @@ export async function auditHotel(
           pages.push(
             unavailable(
               channel,
-              'Une page a été trouvée, mais sa correspondance avec l’établissement n’est pas suffisamment fiable.',
-              page.url
+              'Page trouvée, mais correspondance avec l’établissement insuffisamment fiable.',
+              result.url
             )
           );
 
@@ -131,9 +144,9 @@ export async function auditHotel(
 
       pages.push(page);
 
-    } catch (error) {
+    } catch (e) {
       limitations.push(
-        `${channel} : découverte partiellement indisponible (${cleanError(error)})`
+        `${channel} : découverte partiellement indisponible (${cleanError(e)})`
       );
 
       pages.push(
@@ -147,8 +160,11 @@ export async function auditHotel(
 
 
   /*
+   * ======================================================
    * 3. CONTRÔLES
+   * ======================================================
    */
+
   const checks =
     buildChecks(
       pages,
@@ -157,26 +173,26 @@ export async function auditHotel(
 
   const available =
     checks.filter(
-      check =>
-        check.status !== 'unknown'
+      c =>
+        c.status !== 'unknown'
     );
 
   const passed =
     available.filter(
-      check =>
-        check.status === 'pass'
+      c =>
+        c.status === 'pass'
     );
 
   const failures =
     checks.filter(
-      check =>
-        check.status === 'fail'
+      c =>
+        c.status === 'fail'
     );
 
   const unknown =
     checks.filter(
-      check =>
-        check.status === 'unknown'
+      c =>
+        c.status === 'unknown'
     );
 
 
@@ -205,8 +221,11 @@ export async function auditHotel(
 
 
   /*
+   * ======================================================
    * 4. CONSTATS
+   * ======================================================
    */
+
   let findings =
     failures.map(
       check => ({
@@ -232,30 +251,32 @@ export async function auditHotel(
 
 
   /*
-   * Audit gratuit :
+   * AUDIT GRATUIT :
    * maximum 3 éléments.
    */
   if (hotel.type === 'free') {
+
     if (findings.length < 3) {
+
       const positives =
         checks
           .filter(
-            check =>
-              check.status === 'pass'
+            c =>
+              c.status === 'pass'
           )
           .slice(
             0,
             3 - findings.length
           )
           .map(
-            check => ({
+            c => ({
               severity: 'ok',
 
               title:
-                check.label,
+                c.label,
 
               evidence:
-                check.evidence,
+                c.evidence,
 
               impact:
                 'Point conforme sur la source publique analysée.',
@@ -264,7 +285,7 @@ export async function auditHotel(
                 'Maintenir cette information à jour.',
 
               sources:
-                check.sources
+                c.sources
             })
           );
 
@@ -274,33 +295,39 @@ export async function auditHotel(
     }
 
     findings =
-      findings.slice(0, 3);
+      findings.slice(
+        0,
+        3
+      );
   }
 
 
   /*
-   * Audit payant :
-   * transparence sur les canaux
-   * qui n'ont pas pu être contrôlés.
+   * AUDIT PAYANT :
+   * transparence sur les OTA non vérifiables.
    */
   if (hotel.type === 'paid') {
+
     const channelUnknowns =
       unknown
         .filter(
-          check =>
-            check.category === 'channel'
+          c =>
+            c.category === 'channel'
         )
-        .slice(0, 4)
+        .slice(
+          0,
+          4
+        )
         .map(
-          check => ({
+          c => ({
             severity:
-              'opportunity',
+              'opportunité',
 
             title:
-              `${check.label} — non vérifié`,
+              `${c.label} — non vérifié`,
 
             evidence:
-              check.evidence,
+              c.evidence,
 
             impact:
               'Ce canal n’a pas pu être contrôlé automatiquement avec un niveau de fiabilité suffisant.',
@@ -309,7 +336,7 @@ export async function auditHotel(
               'Vérifier manuellement ce canal s’il représente une part importante de la distribution de l’établissement.',
 
             sources:
-              check.sources
+              c.sources
           })
         );
 
@@ -320,51 +347,63 @@ export async function auditHotel(
 
 
   /*
-   * Seules les VRAIES pages consultées
-   * sont ajoutées aux sources.
+   * ======================================================
+   * 5. SOURCES
+   * ======================================================
    */
+
   const sources = [
     ...new Set(
       pages
         .filter(
-          page =>
-            page.ok &&
-            page.url
+          p =>
+            p.ok &&
+            p.url
         )
         .map(
-          page =>
-            page.url
+          p =>
+            p.url
         )
     )
   ];
 
 
   /*
-   * 5. PLAN D'ACTION
+   * ======================================================
+   * 6. PLAN D'ACTION
+   * ======================================================
    */
+
   const commercialFailures =
-    [...failures].sort(
-      (a, b) =>
-        priorityWeight(b) -
-        priorityWeight(a)
-    );
+    [...failures]
+      .sort(
+        (a, b) =>
+          priorityWeight(b) -
+          priorityWeight(a)
+      );
 
 
   const h48 =
     commercialFailures
-      .slice(0, 3)
+      .slice(
+        0,
+        3
+      )
       .map(
-        check =>
-          check.recommendation
+        x =>
+          x.recommendation
       );
 
 
   const d7 =
     commercialFailures
-      .slice(3, 6)
+      .slice(
+        3,
+        6
+      )
       .map(
-        check =>
-          check.recommendation
+        x =>
+          x.recommendation
       );
 
 
@@ -384,12 +423,12 @@ export async function auditHotel(
   const pageLimitations =
     pages
       .filter(
-        page =>
-          !page.ok
+        p =>
+          !p.ok
       )
       .map(
-        page =>
-          `${page.channel} : ${page.error}`
+        p =>
+          `${p.channel} : ${p.error}`
       );
 
 
@@ -478,43 +517,42 @@ async function discoverChannel(
     };
   }
 
+
   const candidates = [];
 
 
   for (
-    const query of config.queries(hotel)
+    const query of
+    config.queries(hotel)
   ) {
     const urls =
       await searchWeb(
         browser,
         query,
+        channel,
         timeout
       );
 
 
-    for (const url of urls) {
-      /*
-       * IMPORTANT :
-       *
-       * On vérifie maintenant LE VRAI DOMAINE.
-       *
-       * Une URL Bing contenant
-       * "booking.com" dans sa requête
-       * n'est donc plus considérée
-       * comme une page Booking.
-       */
+    for (
+      const url of urls
+    ) {
       if (
         matchesChannelUrl(
           url,
           channel
         )
       ) {
-        candidates.push(url);
+        candidates.push(
+          url
+        );
       }
     }
 
 
-    if (candidates.length) {
+    if (
+      candidates.length
+    ) {
       break;
     }
   }
@@ -539,8 +577,9 @@ async function discoverChannel(
 
 
   /*
-   * On privilégie les URLs qui ressemblent
-   * clairement à des fiches hôtel.
+   * Préférence pour les URLs
+   * qui ressemblent réellement
+   * à des fiches hôtel.
    */
   unique.sort(
     (a, b) =>
@@ -560,27 +599,34 @@ async function discoverChannel(
       unique[0],
 
     candidates:
-      unique.slice(0, 5)
+      unique.slice(
+        0,
+        5
+      )
   };
 }
 
 
 /*
  * ======================================================
- * RECHERCHE WEB VIA NAVIGATEUR
+ * RECHERCHE WEB
  * ======================================================
  */
 
 async function searchWeb(
   browser,
   query,
+  channel,
   timeout
 ) {
   const page =
     await browser.newPage();
 
+
   const encoded =
-    encodeURIComponent(query);
+    encodeURIComponent(
+      query
+    );
 
 
   const engines = [
@@ -593,10 +639,13 @@ async function searchWeb(
 
 
   try {
+
     for (
       const engine of engines
     ) {
+
       try {
+
         await retry(
           () =>
             page.goto(
@@ -613,45 +662,98 @@ async function searchWeb(
 
 
         await page.waitForTimeout(
-          700
+          1000
         );
 
 
-        const links =
+        const rawLinks =
           await page
             .locator('a')
             .evaluateAll(
-              anchors =>
-                anchors
-                  .map(
-                    anchor =>
-                      anchor.href
-                  )
-                  .filter(Boolean)
+              anchors => {
+
+                const results = [];
+
+                for (
+                  const a of anchors
+                ) {
+
+                  if (a.href) {
+                    results.push(
+                      a.href
+                    );
+                  }
+
+
+                  const dataHref =
+                    a.getAttribute(
+                      'data-href'
+                    );
+
+                  if (dataHref) {
+                    results.push(
+                      dataHref
+                    );
+                  }
+
+
+                  const dataUrl =
+                    a.getAttribute(
+                      'data-url'
+                    );
+
+                  if (dataUrl) {
+                    results.push(
+                      dataUrl
+                    );
+                  }
+                }
+
+                return results;
+              }
             );
 
 
-        urls.push(
-          ...links.map(
-            unwrapSearchUrl
-          )
-        );
+        for (
+          const raw of rawLinks
+        ) {
+
+          const url =
+            unwrapSearchUrl(
+              raw
+            );
+
+          if (url) {
+            urls.push(
+              url
+            );
+          }
+        }
 
 
         /*
-         * Si nous avons déjà trouvé
-         * beaucoup de liens,
-         * pas besoin d'insister.
+         * On arrête uniquement
+         * lorsqu'une VRAIE URL
+         * du canal recherché
+         * a été trouvée.
          */
-        if (urls.length > 20) {
+        if (
+          urls.some(
+            url =>
+              matchesChannelUrl(
+                url,
+                channel
+              )
+          )
+        ) {
           break;
         }
 
       } catch {
+
         /*
-         * Le moteur peut être temporairement
-         * inaccessible.
-         * On tente alors le suivant.
+         * On essaie automatiquement
+         * le moteur suivant.
          */
       }
     }
@@ -659,11 +761,12 @@ async function searchWeb(
 
     return [
       ...new Set(
-        urls.filter(Boolean)
+        urls
       )
     ];
 
   } finally {
+
     await page.close();
   }
 }
@@ -671,12 +774,15 @@ async function searchWeb(
 
 /*
  * ======================================================
- * EXTRACTION DES URLS DES MOTEURS DE RECHERCHE
+ * DÉCODAGE DES URLS DE RECHERCHE
  * ======================================================
  */
 
-function unwrapSearchUrl(url) {
+function unwrapSearchUrl(
+  url
+) {
   try {
+
     const parsed =
       new URL(url);
 
@@ -691,6 +797,7 @@ function unwrapSearchUrl(url) {
 
 
     if (uddg) {
+
       return decodeURIComponent(
         uddg
       );
@@ -698,7 +805,7 @@ function unwrapSearchUrl(url) {
 
 
     /*
-     * Paramètre classique "url"
+     * Redirection directe
      */
     const direct =
       parsed.searchParams.get(
@@ -717,8 +824,7 @@ function unwrapSearchUrl(url) {
 
 
     /*
-     * Bing utilise parfois
-     * un paramètre encodé "u".
+     * Bing
      */
     const bing =
       parsed.searchParams.get(
@@ -727,6 +833,7 @@ function unwrapSearchUrl(url) {
 
 
     if (bing) {
+
       const decoded =
         decodeBingUrl(
           bing
@@ -742,20 +849,24 @@ function unwrapSearchUrl(url) {
     return url;
 
   } catch {
+
     return url;
   }
 }
 
 
-function decodeBingUrl(value) {
+function decodeBingUrl(
+  value
+) {
   try {
+
     let encoded =
       String(value);
 
 
     /*
-     * Certaines URLs Bing commencent
-     * par "a1" avant le Base64.
+     * Bing utilise souvent
+     * le préfixe "a1".
      */
     if (
       encoded.startsWith('a1')
@@ -790,18 +901,21 @@ function decodeBingUrl(value) {
           encoded,
           'base64'
         )
-        .toString('utf8');
+        .toString(
+          'utf8'
+        );
 
 
     return (
       /^https?:\/\//i.test(
         decoded
       )
-        ? decoded
-        : ''
-    );
+    )
+      ? decoded
+      : '';
 
   } catch {
+
     return '';
   }
 }
@@ -818,6 +932,7 @@ function matchesChannelUrl(
   channel
 ) {
   try {
+
     const parsed =
       new URL(url);
 
@@ -837,14 +952,13 @@ function matchesChannelUrl(
 
 
     /*
-     * BOOKING
+     * Booking
      */
     if (
       channel === 'booking'
     ) {
       return (
-        host ===
-          'booking.com' ||
+        host === 'booking.com' ||
         host.endsWith(
           '.booking.com'
         )
@@ -853,26 +967,19 @@ function matchesChannelUrl(
 
 
     /*
-     * EXPEDIA
+     * Expedia / Hotels.com
      */
     if (
       channel === 'expedia'
     ) {
       return (
-        host ===
-          'expedia.com' ||
-
         host.startsWith(
           'expedia.'
         ) ||
-
         host.includes(
           '.expedia.'
         ) ||
-
-        host ===
-          'hotels.com' ||
-
+        host === 'hotels.com' ||
         host.endsWith(
           '.hotels.com'
         )
@@ -881,19 +988,15 @@ function matchesChannelUrl(
 
 
     /*
-     * TRIPADVISOR
+     * Tripadvisor
      */
     if (
       channel === 'tripadvisor'
     ) {
       return (
-        host ===
-          'tripadvisor.com' ||
-
         host.startsWith(
           'tripadvisor.'
         ) ||
-
         host.includes(
           '.tripadvisor.'
         )
@@ -902,30 +1005,16 @@ function matchesChannelUrl(
 
 
     /*
-     * GOOGLE MAPS / GOOGLE TRAVEL
+     * Google Maps / Google Travel
      */
     if (
       channel === 'google'
     ) {
-      /*
-       * Google peut utiliser :
-       * google.com
-       * google.fr
-       * maps.google.com
-       * maps.google.fr
-       */
-      const googleHost =
-        host ===
-          'google.com' ||
 
+      const googleHost =
         host.startsWith(
           'google.'
         ) ||
-
-        host.endsWith(
-          '.google.com'
-        ) ||
-
         host.includes(
           '.google.'
         );
@@ -937,7 +1026,6 @@ function matchesChannelUrl(
           path.startsWith(
             '/maps'
           ) ||
-
           path.startsWith(
             '/travel'
           )
@@ -949,6 +1037,7 @@ function matchesChannelUrl(
     return false;
 
   } catch {
+
     return false;
   }
 }
@@ -956,28 +1045,30 @@ function matchesChannelUrl(
 
 /*
  * ======================================================
- * NETTOYAGE DES URLS CANDIDATES
+ * NETTOYAGE DES URLS
  * ======================================================
  */
 
-function cleanCandidateUrl(url) {
+function cleanCandidateUrl(
+  url
+) {
   try {
+
     const parsed =
       new URL(url);
 
 
-    /*
-     * Suppression des paramètres
-     * de tracking les plus courants.
-     */
+    const trackingParams = [
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_content',
+      'utm_term'
+    ];
+
+
     for (
-      const key of [
-        'utm_source',
-        'utm_medium',
-        'utm_campaign',
-        'utm_content',
-        'utm_term'
-      ]
+      const key of trackingParams
     ) {
       parsed.searchParams.delete(
         key
@@ -988,6 +1079,7 @@ function cleanCandidateUrl(url) {
     return parsed.toString();
 
   } catch {
+
     return '';
   }
 }
@@ -995,7 +1087,7 @@ function cleanCandidateUrl(url) {
 
 /*
  * ======================================================
- * SCORE DES URLS CANDIDATES
+ * SCORE DE QUALITÉ D'UNE URL
  * ======================================================
  */
 
@@ -1009,6 +1101,7 @@ function candidateScore(
   if (
     channel === 'booking'
   ) {
+
     if (
       /booking\.com/i.test(
         url
@@ -1030,12 +1123,21 @@ function candidateScore(
   if (
     channel === 'expedia'
   ) {
+
     if (
       /expedia\./i.test(
         url
       )
     ) {
       score += 5;
+    }
+
+    if (
+      /hotels\.com/i.test(
+        url
+      )
+    ) {
+      score += 4;
     }
 
     if (
@@ -1051,6 +1153,7 @@ function candidateScore(
   if (
     channel === 'tripadvisor'
   ) {
+
     if (
       /tripadvisor\./i.test(
         url
@@ -1072,6 +1175,7 @@ function candidateScore(
   if (
     channel === 'google'
   ) {
+
     if (
       /google\./i.test(
         url
@@ -1104,7 +1208,7 @@ function candidateScore(
 
 /*
  * ======================================================
- * VISITE DES PAGES
+ * VISITE D'UNE PAGE
  * ======================================================
  */
 
@@ -1119,6 +1223,7 @@ async function visit(
 
 
   try {
+
     await retry(
       () =>
         page.goto(
@@ -1140,13 +1245,8 @@ async function visit(
 
 
     /*
-     * IMPORTANT :
-     * après navigation, on contrôle
-     * également l'URL finale.
-     *
-     * Cela empêche une page Bing
-     * ou une redirection intermédiaire
-     * d'être prise pour une OTA.
+     * Vérifie que la navigation
+     * a réellement abouti au bon domaine.
      */
     const finalUrl =
       page.url();
@@ -1159,6 +1259,7 @@ async function visit(
         channel
       )
     ) {
+
       return unavailable(
         channel,
         `La navigation n’a pas abouti à une véritable page ${capitalize(channel)}.`,
@@ -1170,6 +1271,7 @@ async function visit(
     const data =
       await page.evaluate(
         () => {
+
           const bodyText =
             (
               document.body
@@ -1184,14 +1286,13 @@ async function visit(
 
 
           const jsonld = [
-            ...document
-              .querySelectorAll(
-                'script[type="application/ld+json"]'
-              )
+            ...document.querySelectorAll(
+              'script[type="application/ld+json"]'
+            )
           ]
             .map(
-              script =>
-                script.textContent ||
+              x =>
+                x.textContent ||
                 ''
             )
             .join(' ');
@@ -1201,10 +1302,10 @@ async function visit(
             ...document.links
           ]
             .map(
-              anchor => ({
+              a => ({
                 text:
                   (
-                    anchor.innerText ||
+                    a.innerText ||
                     ''
                   )
                     .replace(
@@ -1214,7 +1315,7 @@ async function visit(
                     .trim(),
 
                 href:
-                  anchor.href
+                  a.href
               })
             )
             .slice(
@@ -1231,14 +1332,14 @@ async function visit(
               1000
             )
             .map(
-              image => ({
+              img => ({
                 src:
-                  image.currentSrc ||
-                  image.src ||
+                  img.currentSrc ||
+                  img.src ||
                   '',
 
                 alt:
-                  image.alt ||
+                  img.alt ||
                   ''
               })
             );
@@ -1296,15 +1397,15 @@ async function visit(
 
 
     /*
-     * Détection grossière des pages bloquées.
+     * Détection blocage / captcha.
      */
     if (
       data.text.length < 100 ||
-
       /captcha|access denied|verify you are human|robot check|unusual traffic/i.test(
         firstText
       )
     ) {
+
       return unavailable(
         channel,
         'Page bloquée ou contenu public insuffisant',
@@ -1314,25 +1415,22 @@ async function visit(
 
 
     return {
-      ok:
-        true,
-
+      ok: true,
       channel,
-
-      url:
-        finalUrl,
-
+      url: finalUrl,
       ...data
     };
 
-  } catch (error) {
+  } catch (e) {
+
     return unavailable(
       channel,
-      cleanError(error),
+      cleanError(e),
       url
     );
 
   } finally {
+
     await page.close();
   }
 }
@@ -1356,12 +1454,14 @@ async function retry(
     i < attempts;
     i++
   ) {
+
     try {
+
       return await fn();
 
-    } catch (currentError) {
-      error =
-        currentError;
+    } catch (e) {
+
+      error = e;
 
 
       await new Promise(
@@ -1392,33 +1492,21 @@ function unavailable(
   url = ''
 ) {
   return {
-    ok:
-      false,
-
+    ok: false,
     channel,
-
     url,
-
     error,
-
-    text:
-      '',
-
-    jsonld:
-      '',
-
-    links:
-      [],
-
-    images:
-      []
+    text: '',
+    jsonld: '',
+    links: [],
+    images: []
   };
 }
 
 
 /*
  * ======================================================
- * LES 24 CONTRÔLES
+ * 24 CONTRÔLES
  * ======================================================
  */
 
@@ -1428,23 +1516,23 @@ function buildChecks(
 ) {
   const official =
     pages.find(
-      page =>
-        page.channel ===
+      p =>
+        p.channel ===
         'official'
     );
 
 
   const accessible =
     pages.filter(
-      page =>
-        page.ok
+      p =>
+        p.ok
     );
 
 
   const otaPages =
     pages.filter(
-      page =>
-        page.channel !==
+      p =>
+        p.channel !==
         'official'
     );
 
@@ -1453,10 +1541,12 @@ function buildChecks(
 
 
   /*
-   * ------------------------------------------------------
-   * 1 — NOM DE L'HÔTEL
-   * ------------------------------------------------------
+   * ======================================================
+   * 15 CONTRÔLES SITE OFFICIEL
+   * ======================================================
    */
+
+
   checks.push(
     checkOne(
       'identity',
@@ -1465,9 +1555,9 @@ function buildChecks(
 
       official,
 
-      page =>
+      p =>
         contains(
-          page,
+          p,
           hotel.hotel_name
         ),
 
@@ -1480,11 +1570,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 2 — LOCALISATION
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'identity',
@@ -1493,9 +1578,9 @@ function buildChecks(
 
       official,
 
-      page =>
+      p =>
         contains(
-          page,
+          p,
           hotel.city
         ),
 
@@ -1508,11 +1593,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 3 — CONTACT
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'contact',
@@ -1521,10 +1601,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /\+?\d[\d .()-]{7,}|@[\w.-]+\.[a-z]{2,}/i.test(
-          page.text
-        ),
+      p =>
+        /\+?\d[\d .()-]{7,}|@[\w.-]+\.[a-z]{2,}/i
+          .test(
+            p.text
+          ),
 
       'Aucun téléphone ou email public n’a été détecté.',
 
@@ -1535,11 +1616,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 4 — CHAMBRES
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'rooms',
@@ -1548,10 +1624,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /chambre|room|suite|studio|double|twin|familiale/i.test(
-          page.text
-        ),
+      p =>
+        /chambre|room|suite|studio|double|twin|familiale/i
+          .test(
+            p.text
+          ),
 
       'Aucune catégorie de chambre claire n’a été détectée.',
 
@@ -1562,11 +1639,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 5 — ÉQUIPEMENTS
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'amenities',
@@ -1575,10 +1647,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /wifi|wi-fi|climatisation|air conditioning|piscine|spa|fitness|sauna/i.test(
-          page.text
-        ),
+      p =>
+        /wifi|wi-fi|climatisation|air conditioning|piscine|spa|fitness|sauna/i
+          .test(
+            p.text
+          ),
 
       'Aucun équipement principal n’a été détecté clairement.',
 
@@ -1589,11 +1662,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 6 — CHECK-IN / CHECK-OUT
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'policies',
@@ -1602,10 +1670,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /check.?in|check.?out|arrivée|départ/i.test(
-          page.text
-        ),
+      p =>
+        /check.?in|check.?out|arrivée|départ/i
+          .test(
+            p.text
+          ),
 
       'Horaires d’arrivée et de départ non détectés.',
 
@@ -1616,11 +1685,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 7 — ANNULATION
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'policies',
@@ -1629,10 +1693,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /annulation|cancel|rembours|pré.?paiement|prepayment/i.test(
-          page.text
-        ),
+      p =>
+        /annulation|cancel|rembours|pré.?paiement|prepayment/i
+          .test(
+            p.text
+          ),
 
       'Conditions d’annulation ou de prépaiement non détectées.',
 
@@ -1643,11 +1708,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 8 — RESTAURATION
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'food',
@@ -1656,10 +1716,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /restaurant|petit.?déjeuner|breakfast|bar\b/i.test(
-          page.text
-        ),
+      p =>
+        /restaurant|petit.?déjeuner|breakfast|bar\b/i
+          .test(
+            p.text
+          ),
 
       'Information sur le restaurant ou le petit-déjeuner non détectée.',
 
@@ -1670,11 +1731,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 9 — PARKING
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'parking',
@@ -1683,10 +1739,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /parking|stationnement|garage/i.test(
-          page.text
-        ),
+      p =>
+        /parking|stationnement|garage/i
+          .test(
+            p.text
+          ),
 
       'Information parking non détectée.',
 
@@ -1697,11 +1754,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 10 — AVIS
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'reviews',
@@ -1710,10 +1762,11 @@ function buildChecks(
 
       official,
 
-      page =>
-        /avis|reviews?|\b[0-9][,.][0-9]\s*\/\s*(5|10)|étoiles/i.test(
-          page.text
-        ),
+      p =>
+        /avis|reviews?|\b[0-9][,.][0-9]\s*\/\s*(5|10)|étoiles/i
+          .test(
+            p.text
+          ),
 
       'Aucune preuve de réputation ou note client détectée.',
 
@@ -1724,11 +1777,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 11 — CTA RÉSERVATION
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'direct',
@@ -1737,12 +1785,13 @@ function buildChecks(
 
       official,
 
-      page =>
-        page.links.some(
-          link =>
-            /réserver|reserver|book now|reservation|disponibilit/i.test(
-              `${link.text} ${link.href}`
-            )
+      p =>
+        p.links.some(
+          l =>
+            /réserver|reserver|book now|reservation|disponibilit/i
+              .test(
+                `${l.text} ${l.href}`
+              )
         ),
 
       'Aucun appel à l’action de réservation directe détecté.',
@@ -1751,13 +1800,15 @@ function buildChecks(
 
       null,
 
-      page => {
+      p => {
+
         const link =
-          page.links.find(
-            item =>
-              /réserver|reserver|book now|reservation|disponibilit/i.test(
-                `${item.text} ${item.href}`
-              )
+          p.links.find(
+            l =>
+              /réserver|reserver|book now|reservation|disponibilit/i
+                .test(
+                  `${l.text} ${l.href}`
+                )
           );
 
 
@@ -1769,11 +1820,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 12 — MOTEUR DE RÉSERVATION
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'direct',
@@ -1782,35 +1828,37 @@ function buildChecks(
 
       official,
 
-      page => {
+      p => {
+
         const officialHost =
           hostname(
             hotel.website
           );
 
 
-        return page.links.some(
-          link => {
+        return p.links.some(
+          l => {
+
             const href =
               String(
-                link.href ||
+                l.href ||
                 ''
               );
 
 
             const host =
-              hostname(href);
+              hostname(
+                href
+              );
 
 
             return (
-              /booking|reservation|availab|disponibil|book/i.test(
-                `${link.text} ${href}`
-              ) &&
-
+              /booking|reservation|availab|disponibil|book/i
+                .test(
+                  `${l.text} ${href}`
+                ) &&
               host &&
-
-              host !==
-                officialHost
+              host !== officialHost
             );
           }
         );
@@ -1822,7 +1870,8 @@ function buildChecks(
 
       null,
 
-      page => {
+      p => {
+
         const officialHost =
           hostname(
             hotel.website
@@ -1830,23 +1879,22 @@ function buildChecks(
 
 
         const link =
-          page.links.find(
-            item => {
+          p.links.find(
+            l => {
+
               const host =
                 hostname(
-                  item.href
+                  l.href
                 );
 
 
               return (
-                /booking|reservation|availab|disponibil|book/i.test(
-                  `${item.text} ${item.href}`
-                ) &&
-
+                /booking|reservation|availab|disponibil|book/i
+                  .test(
+                    `${l.text} ${l.href}`
+                  ) &&
                 host &&
-
-                host !==
-                  officialHost
+                host !== officialHost
               );
             }
           );
@@ -1860,11 +1908,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 13 — TARIFS / DISPONIBILITÉS
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'price',
@@ -1873,16 +1916,17 @@ function buildChecks(
 
       official,
 
-      page =>
-        /\b\d{2,4}\s?(€|EUR)|€\s?\d{2,4}/i.test(
-          page.text
-        ) ||
-
-        page.links.some(
-          link =>
-            /tarif|prix|disponibil|réserver|reserver|book/i.test(
-              `${link.text} ${link.href}`
-            )
+      p =>
+        /\b\d{2,4}\s?(€|EUR)|€\s?\d{2,4}/i
+          .test(
+            p.text
+          ) ||
+        p.links.some(
+          l =>
+            /tarif|prix|disponibil|réserver|reserver|book/i
+              .test(
+                `${l.text} ${l.href}`
+              )
         ),
 
       'Aucun prix public ni accès évident aux disponibilités n’a été détecté.',
@@ -1894,11 +1938,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 14 — CONTENU
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'content',
@@ -1907,8 +1946,8 @@ function buildChecks(
 
       official,
 
-      page =>
-        page.text.length >
+      p =>
+        p.text.length >
         1200,
 
       'Le contenu public détecté est très limité.',
@@ -1920,11 +1959,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 15 — PHOTOS
-   * ------------------------------------------------------
-   */
   checks.push(
     checkOne(
       'content',
@@ -1933,15 +1967,15 @@ function buildChecks(
 
       official,
 
-      page =>
+      p =>
         (
-          page.images?.length ||
+          p.images?.length ||
           0
         ) >= 5 ||
-
-        /photo|gallery|galerie/i.test(
-          `${page.text} ${page.jsonld}`
-        ),
+        /photo|gallery|galerie/i
+          .test(
+            `${p.text} ${p.jsonld}`
+          ),
 
       'Aucune galerie ou quantité significative de photos n’a été détectée.',
 
@@ -1949,20 +1983,22 @@ function buildChecks(
 
       null,
 
-      page =>
-        `${page.images?.length || 0} image(s) détectée(s) sur la page analysée.`
+      p =>
+        `${p.images?.length || 0} image(s) détectée(s) sur la page analysée.`
     )
   );
 
 
   /*
-   * ------------------------------------------------------
-   * 16 À 19 — PRÉSENCE OTA
-   * ------------------------------------------------------
+   * ======================================================
+   * 4 CONTRÔLES PRÉSENCE OTA
+   * ======================================================
    */
+
   for (
     const ota of otaPages
   ) {
+
     checks.push(
       checkChannelPresence(
         ota
@@ -1972,19 +2008,21 @@ function buildChecks(
 
 
   /*
-   * ------------------------------------------------------
-   * 20 — COHÉRENCE NOM
-   * ------------------------------------------------------
+   * ======================================================
+   * 5 CONTRÔLES DE COHÉRENCE
+   * ======================================================
    */
+
+
   checks.push(
     compare(
       accessible,
 
       'Cohérence du nom de l’établissement',
 
-      page =>
+      p =>
         normalize(
-          hotelName(page)
+          hotelName(p)
         ),
 
       'Harmoniser le nom de l’établissement entre les canaux publics.'
@@ -1992,20 +2030,15 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 21 — COHÉRENCE HORAIRES
-   * ------------------------------------------------------
-   */
   checks.push(
     compare(
       accessible,
 
       'Cohérence des horaires',
 
-      page =>
+      p =>
         first(
-          page.text,
+          p.text,
 
           /(check.?in|check.?out|arrivée|départ).{0,100}/i
         ),
@@ -2015,20 +2048,15 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 22 — COHÉRENCE RESTAURATION
-   * ------------------------------------------------------
-   */
   checks.push(
     compare(
       accessible,
 
       'Cohérence restaurant / petit-déjeuner',
 
-      page =>
+      p =>
         first(
-          page.text,
+          p.text,
 
           /(restaurant|petit.?déjeuner|breakfast).{0,120}/i
         ),
@@ -2038,20 +2066,15 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 23 — COHÉRENCE PARKING
-   * ------------------------------------------------------
-   */
   checks.push(
     compare(
       accessible,
 
       'Cohérence parking',
 
-      page =>
+      p =>
         first(
-          page.text,
+          p.text,
 
           /(parking|stationnement|garage).{0,120}/i
         ),
@@ -2061,11 +2084,6 @@ function buildChecks(
   );
 
 
-  /*
-   * ------------------------------------------------------
-   * 24 — PRIX
-   * ------------------------------------------------------
-   */
   checks.push(
     priceCompare(
       accessible
@@ -2093,7 +2111,9 @@ function checkOne(
   evidencePattern = null,
   customEvidence = null
 ) {
+
   if (!page?.ok) {
+
     return unknown(
       category,
       label,
@@ -2115,18 +2135,24 @@ function checkOne(
 
 
   if (ok) {
+
     let detail = '';
 
 
-    if (customEvidence) {
+    if (
+      customEvidence
+    ) {
+
       detail =
-        customEvidence(page) ||
+        customEvidence(
+          page
+        ) ||
         '';
 
     } else if (
-      evidencePattern instanceof
-      RegExp
+      evidencePattern instanceof RegExp
     ) {
+
       detail =
         extractEvidence(
           page.text,
@@ -2165,26 +2191,25 @@ function checkOne(
 
 /*
  * ======================================================
- * CONTRÔLE PRÉSENCE OTA
+ * PRÉSENCE OTA
  * ======================================================
  */
 
 function checkChannelPresence(
   page
 ) {
+
   const label =
     `Présence publique ${capitalize(page.channel)}`;
 
 
   if (!page?.ok) {
+
     return unknown(
       'channel',
-
       label,
-
       page?.error ||
         `${page.channel} inaccessible ou introuvable.`,
-
       page?.url
     );
   }
@@ -2200,7 +2225,7 @@ function checkChannelPresence(
       'pass',
 
     evidence:
-      `Une véritable page publique ${capitalize(page.channel)} correspondant à l’établissement a été trouvée.`,
+      `Une page publique ${capitalize(page.channel)} correspondant à l’établissement a été trouvée.`,
 
     recommendation:
       'Maintenir cette fiche à jour et cohérente avec le site officiel.',
@@ -2214,7 +2239,7 @@ function checkChannelPresence(
 
 /*
  * ======================================================
- * COMPARAISON DE PLUSIEURS SOURCES
+ * COMPARAISON ENTRE CANAUX
  * ======================================================
  */
 
@@ -2224,6 +2249,7 @@ function compare(
   extract,
   recommendation
 ) {
+
   const values =
     pages
       .map(
@@ -2242,24 +2268,22 @@ function compare(
         })
       )
       .filter(
-        item =>
-          item.value
+        x =>
+          x.value
       );
 
 
   if (
     values.length < 2
   ) {
+
     return unknown(
       'consistency',
-
       label,
-
       'Moins de deux sources publiques comparables.',
-
       ...values.map(
-        item =>
-          item.url
+        x =>
+          x.url
       )
     );
   }
@@ -2268,8 +2292,8 @@ function compare(
   const unique = [
     ...new Set(
       values.map(
-        item =>
-          item.value
+        x =>
+          x.value
       )
     )
   ];
@@ -2295,8 +2319,8 @@ function compare(
 
     sources:
       values.map(
-        item =>
-          item.url
+        x =>
+          x.url
       )
   };
 }
@@ -2304,13 +2328,14 @@ function compare(
 
 /*
  * ======================================================
- * COMPARAISON TARIFAIRE
+ * COMPARAISON DES PRIX
  * ======================================================
  */
 
 function priceCompare(
   pages
 ) {
+
   const values =
     pages
       .map(
@@ -2331,38 +2356,30 @@ function priceCompare(
         })
       )
       .filter(
-        item =>
-          item.value
+        x =>
+          x.value
       );
 
 
   if (
     values.length < 2
   ) {
+
     return unknown(
       'price',
-
       'Comparaison des prix publics',
-
       'Moins de deux tarifs publics accessibles ont été détectés.',
-
       ...values.map(
-        item =>
-          item.url
+        x =>
+          x.url
       )
     );
   }
 
 
   /*
-   * IMPORTANT :
-   *
-   * On ne prétend jamais qu'il existe
-   * une disparité tarifaire simplement
-   * parce que deux nombres sont différents.
-   *
-   * Les dates, occupation, chambre
-   * et conditions doivent être identiques.
+   * On ne conclut pas automatiquement
+   * à une disparité tarifaire.
    */
   return unknown(
     'price',
@@ -2372,8 +2389,8 @@ function priceCompare(
     `${values.length} prix publics ont été détectés, mais une comparaison fiable nécessite les mêmes dates, la même occupation, la même chambre et les mêmes conditions.`,
 
     ...values.map(
-      item =>
-        item.url
+      x =>
+        x.url
     )
   );
 }
@@ -2381,7 +2398,7 @@ function priceCompare(
 
 /*
  * ======================================================
- * CONTRÔLE NON VÉRIFIABLE
+ * INCONNU / NON VÉRIFIABLE
  * ======================================================
  */
 
@@ -2391,6 +2408,7 @@ function unknown(
   evidence,
   ...sources
 ) {
+
   return {
     category,
 
@@ -2412,13 +2430,14 @@ function unknown(
 
 /*
  * ======================================================
- * NIVEAUX DE GRAVITÉ
+ * PRIORITÉ
  * ======================================================
  */
 
 function severityFor(
   check
 ) {
+
   if (
     [
       'direct',
@@ -2428,6 +2447,7 @@ function severityFor(
       check.category
     )
   ) {
+
     return 'critique';
   }
 
@@ -2442,6 +2462,7 @@ function severityFor(
       check.category
     )
   ) {
+
     return 'important';
   }
 
@@ -2459,7 +2480,9 @@ function severityFor(
 function impactFor(
   check
 ) {
+
   const impacts = {
+
     identity:
       'Une information d’identité incohérente peut créer de la confusion et réduire la confiance du client.',
 
@@ -2470,7 +2493,7 @@ function impactFor(
       'Une présentation insuffisante des chambres peut empêcher le client de comprendre l’offre et réduire la conversion.',
 
     amenities:
-      'Les équipements constituent des critères fréquents de comparaison entre établissements.',
+      'Les équipements sont des critères fréquents de comparaison entre hôtels.',
 
     policies:
       'Des conditions peu visibles peuvent créer de l’incertitude au moment de réserver et augmenter les abandons.',
@@ -2505,7 +2528,6 @@ function impactFor(
     impacts[
       check.category
     ] ||
-
     'Ce point peut affecter la qualité de la présence digitale de l’établissement.'
   );
 }
@@ -2513,14 +2535,16 @@ function impactFor(
 
 /*
  * ======================================================
- * PRIORITÉ BUSINESS
+ * POIDS COMMERCIAL
  * ======================================================
  */
 
 function priorityWeight(
   check
 ) {
+
   const weights = {
+
     direct:
       100,
 
@@ -2573,7 +2597,7 @@ function priorityWeight(
 
 /*
  * ======================================================
- * VÉRIFICATION DE L'IDENTITÉ DE L'HÔTEL
+ * CORRESPONDANCE HÔTEL
  * ======================================================
  */
 
@@ -2581,16 +2605,10 @@ function hotelMatchConfidence(
   page,
   hotel
 ) {
+
   const haystack =
     normalize(
-      `${
-        page.title
-      } ${
-        page.text.slice(
-          0,
-          6000
-        )
-      }`
+      `${page.title} ${page.text.slice(0, 6000)}`
     );
 
 
@@ -2612,7 +2630,6 @@ function hotelMatchConfidence(
       .filter(
         word =>
           word.length >= 4 &&
-
           ![
             'hotel',
             'hotellerie',
@@ -2626,37 +2643,38 @@ function hotelMatchConfidence(
   let score = 0;
 
 
-  /*
-   * Nom complet trouvé
-   */
   if (
     name &&
-    haystack.includes(name)
+    haystack.includes(
+      name
+    )
   ) {
+
     score += 5;
   }
 
 
-  /*
-   * Ville trouvée
-   */
   if (
     city &&
-    haystack.includes(city)
+    haystack.includes(
+      city
+    )
   ) {
+
     score += 3;
   }
 
 
-  /*
-   * Mots importants du nom
-   */
   for (
     const word of significantWords
   ) {
+
     if (
-      haystack.includes(word)
+      haystack.includes(
+        word
+      )
     ) {
+
       score += 1;
     }
   }
@@ -2665,6 +2683,7 @@ function hotelMatchConfidence(
   if (
     score >= 6
   ) {
+
     return 'high';
   }
 
@@ -2672,6 +2691,7 @@ function hotelMatchConfidence(
   if (
     score >= 3
   ) {
+
     return 'medium';
   }
 
@@ -2682,7 +2702,7 @@ function hotelMatchConfidence(
 
 /*
  * ======================================================
- * EXTRACTION DE PREUVES
+ * EXTRACTION DE PREUVE
  * ======================================================
  */
 
@@ -2690,6 +2710,7 @@ function extractEvidence(
   text,
   regex
 ) {
+
   const match =
     String(
       text ||
@@ -2719,18 +2740,18 @@ function extractEvidence(
 
   return (
     value.length > 180
-      ? value.slice(
-          0,
-          177
-        ) + '...'
-      : value
-  );
+  )
+    ? value.slice(
+        0,
+        177
+      ) + '...'
+    : value;
 }
 
 
 /*
  * ======================================================
- * OUTILS TEXTE
+ * UTILITAIRES
  * ======================================================
  */
 
@@ -2738,10 +2759,13 @@ function contains(
   page,
   text
 ) {
+
   return normalize(
     page.text
   ).includes(
-    normalize(text)
+    normalize(
+      text
+    )
   );
 }
 
@@ -2749,12 +2773,15 @@ function contains(
 function normalize(
   value
 ) {
+
   return String(
     value ||
     ''
   )
     .toLowerCase()
-    .normalize('NFD')
+    .normalize(
+      'NFD'
+    )
     .replace(
       /[\u0300-\u036f]/g,
       ''
@@ -2771,6 +2798,7 @@ function first(
   text,
   regex
 ) {
+
   const match =
     String(
       text ||
@@ -2780,17 +2808,16 @@ function first(
     );
 
 
-  return (
-    match
-      ? match[0]
-      : ''
-  );
+  return match
+    ? match[0]
+    : '';
 }
 
 
 function hotelName(
   page
 ) {
+
   return (
     page.title
       ?.split(
@@ -2805,7 +2832,9 @@ function hotelName(
 function hostname(
   url
 ) {
+
   try {
+
     return new URL(
       url
     )
@@ -2816,6 +2845,7 @@ function hostname(
       );
 
   } catch {
+
     return '';
   }
 }
@@ -2824,6 +2854,7 @@ function hostname(
 function capitalize(
   text
 ) {
+
   const value =
     String(
       text ||
@@ -2831,20 +2862,18 @@ function capitalize(
     );
 
 
-  return (
-    value
-      ? value
-          .charAt(0)
-          .toUpperCase() +
-        value.slice(1)
-      : ''
-  );
+  return value
+    ? value.charAt(0)
+        .toUpperCase() +
+      value.slice(1)
+    : '';
 }
 
 
 function cleanError(
   error
 ) {
+
   return String(
     error?.message ||
     error ||
