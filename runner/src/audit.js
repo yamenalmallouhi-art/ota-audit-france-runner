@@ -5,6 +5,7 @@ const CHANNELS = {
       `"${h.hotel_name}" "${h.city}" Booking.com`
     ]
   },
+
   expedia: {
     queries: h => [
       `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
@@ -13,6 +14,7 @@ const CHANNELS = {
       `"${h.hotel_name}" "${h.city}" Expedia`
     ]
   },
+
   google: {
     queries: h => [
       `site:google.com/travel/hotels "${h.hotel_name}" "${h.city}"`,
@@ -21,6 +23,7 @@ const CHANNELS = {
       `"${h.hotel_name}" "${h.city}" "Google Hotels"`
     ]
   },
+
   tripadvisor: {
     queries: h => [
       `site:tripadvisor.fr/Hotel_Review "${h.hotel_name}" "${h.city}"`,
@@ -49,6 +52,7 @@ const IGNORED_NAME_WORDS = new Set([
 
 export async function auditHotel(browser, hotel, options = {}) {
   const timeout = options.timeout ?? 30000;
+
   const pages = [];
   const limitations = [];
 
@@ -91,6 +95,7 @@ export async function auditHotel(browser, hotel, options = {}) {
             'Aucune page publique fiable trouvée'
           )
         );
+
         continue;
       }
 
@@ -115,6 +120,7 @@ export async function auditHotel(browser, hotel, options = {}) {
               result.url
             )
           );
+
           continue;
         }
 
@@ -511,12 +517,12 @@ async function directPlatformSearch(
     },
 
     google: {
-  url:
-    `https://www.google.com/travel/hotels?q=${query}`,
+      url:
+        `https://www.google.com/travel/hotels?q=${query}`,
 
-  selector:
-    'a[href*="/travel/"]'
-}
+      selector:
+        'a[href*="/travel/"]'
+    }
   };
 
   const config =
@@ -545,56 +551,85 @@ async function directPlatformSearch(
     );
 
     console.log(
-  '[OTA PAGE]',
-      if (channel === 'google') {
-  const currentUrl = page.url();
-  const currentTitle = await page.title();
-  const currentText = await page
-    .locator('body')
-    .innerText()
-    .catch(() => '');
-
-  const scoredPage = scoreHotelCandidate(
-    currentUrl,
-    `${currentTitle} ${currentText.slice(0, 5000)}`,
-    hotel,
-    channel
-  );
-
-  if (
-    matchesChannelUrl(currentUrl, channel) &&
-    isCredibleHotelCandidate(scoredPage, hotel)
-  ) {
-    console.log(
-      '[OTA GOOGLE PAGE]',
-      'accepted =',
-      currentUrl,
+      '[OTA PAGE]',
+      channel,
+      'url =',
+      page.url(),
       'title =',
-      currentTitle
+      await page.title(),
+      'links =',
+      await page.locator('a').count(),
+      'text =',
+      (
+        await page
+          .locator('body')
+          .innerText()
+          .catch(() => '')
+      )
+        .replace(/\s+/g, ' ')
+        .slice(0, 500)
     );
 
-    return [
-      {
-        url: currentUrl,
-        text: `${currentTitle} ${currentText.slice(0, 5000)}`
+    /*
+     * Google Hotels peut rediriger :
+     *
+     * /travel/hotels
+     * vers
+     * /travel/search
+     *
+     * Dans ce cas, la page elle-même peut déjà être
+     * une page correspondant précisément à l'hôtel.
+     */
+    if (channel === 'google') {
+      const currentUrl =
+        page.url();
+
+      const currentTitle =
+        await page.title();
+
+      const currentText =
+        await page
+          .locator('body')
+          .innerText()
+          .catch(() => '');
+
+      const scoredPage =
+        scoreHotelCandidate(
+          currentUrl,
+          `${currentTitle} ${currentText.slice(0, 5000)}`,
+          hotel,
+          channel
+        );
+
+      if (
+        matchesChannelUrl(
+          currentUrl,
+          channel
+        ) &&
+        isCredibleHotelCandidate(
+          scoredPage,
+          hotel
+        )
+      ) {
+        console.log(
+          '[OTA GOOGLE PAGE]',
+          'accepted =',
+          currentUrl,
+          'title =',
+          currentTitle
+        );
+
+        return [
+          {
+            url:
+              currentUrl,
+
+            text:
+              `${currentTitle} ${currentText.slice(0, 5000)}`
+          }
+        ];
       }
-    ];
-  }
-}
-  channel,
-  'url =',
-  page.url(),
-  'title =',
-  await page.title(),
-  'links =',
-  await page.locator('a').count(),
-  'text =',
-  (
-    await page.locator('body').innerText().catch(() => '')
-  )
-    .replace(/\s+/g, ' ')
-    .slice(0, 500)
-);
+    }
 
     const raw =
       await page
@@ -840,7 +875,7 @@ async function searchWeb(
         }
 
       } catch {
-        // moteur suivant
+        // Essayer le moteur suivant.
       }
     }
 
@@ -1368,8 +1403,7 @@ function candidateScore(
   }
 
   if (
-    channel ===
-    'tripadvisor'
+    channel === 'tripadvisor'
   ) {
     if (
       /tripadvisor\./i.test(
@@ -1408,7 +1442,7 @@ function candidateScore(
     }
 
     if (
-      /\/travel\/hotels\/entity\//i.test(
+      /\/travel/i.test(
         url
       )
     ) {
@@ -1584,7 +1618,7 @@ async function visit(
 
     if (
       data.text.length < 100 ||
-      /captcha|access denied|verify you are human|robot check|unusual traffic/i.test(
+      /captcha|access denied|verify you are human|robot check|unusual traffic|robot ou pas robot/i.test(
         firstText
       )
     ) {
