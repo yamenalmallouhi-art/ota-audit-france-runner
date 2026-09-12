@@ -1,5 +1,6 @@
 const CHANNELS = {
   booking: {
+    domains: [/booking\.com/i],
     queries: h => [
       `site:booking.com/hotel "${h.hotel_name}" "${h.city}"`,
       `"${h.hotel_name}" "${h.city}" Booking.com`
@@ -7,15 +8,22 @@ const CHANNELS = {
   },
 
   expedia: {
+    domains: [
+      /expedia\./i,
+      /hotels\.com/i
+    ],
     queries: h => [
       `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
       `site:expedia.com "${h.hotel_name}" "${h.city}"`,
-      `site:hotels.com "${h.hotel_name}" "${h.city}"`,
       `"${h.hotel_name}" "${h.city}" Expedia`
     ]
   },
 
   google: {
+    domains: [
+      /google\.[^/]+\/maps/i,
+      /google\.[^/]+\/travel/i
+    ],
     queries: h => [
       `site:google.fr/travel/hotels "${h.hotel_name}" "${h.city}"`,
       `site:google.com/travel/hotels "${h.hotel_name}" "${h.city}"`,
@@ -26,6 +34,7 @@ const CHANNELS = {
   },
 
   tripadvisor: {
+    domains: [/tripadvisor\./i],
     queries: h => [
       `site:tripadvisor.fr/Hotel_Review "${h.hotel_name}" "${h.city}"`,
       `site:tripadvisor.com/Hotel_Review "${h.hotel_name}" "${h.city}"`,
@@ -34,12 +43,20 @@ const CHANNELS = {
   }
 };
 
-export async function auditHotel(browser, hotel, options = {}) {
-  const timeout = options.timeout ?? 30000;
+export async function auditHotel(
+  browser,
+  hotel,
+  options = {}
+) {
+  const timeout =
+    options.timeout ?? 30000;
 
   const pages = [];
   const limitations = [];
 
+  /*
+   * SITE OFFICIEL
+   */
   const official = await visit(
     browser,
     hotel.website,
@@ -49,6 +66,9 @@ export async function auditHotel(browser, hotel, options = {}) {
 
   pages.push(official);
 
+  /*
+   * RECHERCHE DES CANAUX
+   */
   for (const channel of [
     'booking',
     'expedia',
@@ -56,12 +76,13 @@ export async function auditHotel(browser, hotel, options = {}) {
     'tripadvisor'
   ]) {
     try {
-      const result = await discoverChannel(
-        browser,
-        hotel,
-        channel,
-        timeout
-      );
+      const result =
+        await discoverChannel(
+          browser,
+          hotel,
+          channel,
+          timeout
+        );
 
       if (!result.url) {
         pages.push(
@@ -74,12 +95,13 @@ export async function auditHotel(browser, hotel, options = {}) {
         continue;
       }
 
-      const page = await visit(
-        browser,
-        result.url,
-        channel,
-        timeout
-      );
+      const page =
+        await visit(
+          browser,
+          result.url,
+          channel,
+          timeout
+        );
 
       if (page.ok) {
         const confidence =
@@ -120,6 +142,9 @@ export async function auditHotel(browser, hotel, options = {}) {
     }
   }
 
+  /*
+   * CONTRÔLES
+   */
   const checks =
     buildChecks(
       pages,
@@ -128,24 +153,31 @@ export async function auditHotel(browser, hotel, options = {}) {
 
   const available =
     checks.filter(
-      c => c.status !== 'unknown'
+      c =>
+        c.status !== 'unknown'
     );
 
   const passed =
     available.filter(
-      c => c.status === 'pass'
+      c =>
+        c.status === 'pass'
     );
 
   const failures =
     checks.filter(
-      c => c.status === 'fail'
+      c =>
+        c.status === 'fail'
     );
 
   const unknown =
     checks.filter(
-      c => c.status === 'unknown'
+      c =>
+        c.status === 'unknown'
     );
 
+  /*
+   * SCORE
+   */
   const score =
     available.length
       ? Math.round(
@@ -164,6 +196,9 @@ export async function auditHotel(browser, hotel, options = {}) {
         )
       : 0;
 
+  /*
+   * CONSTATS
+   */
   let findings =
     failures.map(
       check => ({
@@ -187,12 +222,16 @@ export async function auditHotel(browser, hotel, options = {}) {
       })
     );
 
+  /*
+   * VERSION GRATUITE
+   */
   if (hotel.type === 'free') {
     if (findings.length < 3) {
       const positives =
         checks
           .filter(
-            c => c.status === 'pass'
+            c =>
+              c.status === 'pass'
           )
           .slice(
             0,
@@ -225,12 +264,14 @@ export async function auditHotel(browser, hotel, options = {}) {
     }
 
     findings =
-      findings.slice(
-        0,
-        3
-      );
+      findings.slice(0, 3);
   }
 
+  /*
+   * VERSION PAYANTE :
+   * afficher les principaux canaux
+   * non vérifiables.
+   */
   if (hotel.type === 'paid') {
     const channelUnknowns =
       unknown
@@ -238,10 +279,7 @@ export async function auditHotel(browser, hotel, options = {}) {
           c =>
             c.category === 'channel'
         )
-        .slice(
-          0,
-          4
-        )
+        .slice(0, 4)
         .map(
           c => ({
             severity:
@@ -269,6 +307,9 @@ export async function auditHotel(browser, hotel, options = {}) {
     );
   }
 
+  /*
+   * SOURCES RÉELLES
+   */
   const sources = [
     ...new Set(
       pages
@@ -278,11 +319,15 @@ export async function auditHotel(browser, hotel, options = {}) {
             p.url
         )
         .map(
-          p => p.url
+          p =>
+            p.url
         )
     )
   ];
 
+  /*
+   * PLAN D'ACTION
+   */
   const commercialFailures =
     [...failures]
       .sort(
@@ -321,7 +366,8 @@ export async function auditHotel(browser, hotel, options = {}) {
   const pageLimitations =
     pages
       .filter(
-        p => !p.ok
+        p =>
+          !p.ok
       )
       .map(
         p =>
@@ -392,7 +438,7 @@ export async function auditHotel(browser, hotel, options = {}) {
 
 /*
  * ======================================================
- * DÉCOUVERTE
+ * DÉCOUVERTE DES CANAUX
  * ======================================================
  */
 
@@ -402,12 +448,12 @@ async function discoverChannel(
   channel,
   timeout
 ) {
+  /*
+   * STRATÉGIE 1 :
+   * recherche directement sur la plateforme.
+   */
   let candidates = [];
 
-  /*
-   * Étape 1 :
-   * recherche directe sur la plateforme.
-   */
   try {
     candidates =
       await directPlatformSearch(
@@ -416,6 +462,7 @@ async function discoverChannel(
         channel,
         timeout
       );
+
   } catch {
     candidates = [];
   }
@@ -430,8 +477,8 @@ async function discoverChannel(
     );
 
   /*
-   * Étape 2 :
-   * Bing / DuckDuckGo uniquement en secours.
+   * STRATÉGIE 2 :
+   * moteurs de recherche en secours.
    */
   if (!candidates.length) {
     const config =
@@ -499,12 +546,15 @@ async function discoverChannel(
       unique[0],
 
     candidates:
-      unique.slice(
-        0,
-        5
-      )
+      unique.slice(0, 5)
   };
 }
+
+/*
+ * ======================================================
+ * RECHERCHE DIRECTE SUR LES PLATEFORMES
+ * ======================================================
+ */
 
 async function directPlatformSearch(
   browser,
@@ -522,39 +572,32 @@ async function directPlatformSearch(
       url:
         `https://www.booking.com/searchresults.fr.html?ss=${query}`,
 
-      selectors: [
+      selector:
         'a[href*="/hotel/"]'
-      ]
     },
 
     expedia: {
       url:
         `https://www.expedia.fr/Hotel-Search?destination=${query}`,
 
-      selectors: [
-        'a[href*=".Description-Hotel"]',
-        'a[href*="/Hotel-Information"]',
-        'a[href*="/hotel/"]'
-      ]
+      selector:
+        'a[href*=".Description-Hotel"]'
     },
 
     tripadvisor: {
       url:
         `https://www.tripadvisor.fr/Search?q=${query}`,
 
-      selectors: [
+      selector:
         'a[href*="/Hotel_Review-"]'
-      ]
     },
 
     google: {
       url:
         `https://www.google.com/travel/hotels?q=${query}`,
 
-      selectors: [
-        'a[href*="/travel/hotels/entity/"]',
-        'a[href*="/maps/"]'
-      ]
+      selector:
+        'a[href*="/travel/hotels/entity/"]'
     }
   };
 
@@ -580,49 +623,35 @@ async function directPlatformSearch(
     );
 
     await page.waitForTimeout(
-      2200
+      2000
     );
 
-    const results = [];
+    const results =
+      await page
+        .locator(
+          config.selector
+        )
+        .evaluateAll(
+          links =>
+            links.map(
+              a => ({
+                href:
+                  a.href,
 
-    for (
-      const selector
-      of config.selectors
-    ) {
-      try {
-        const found =
-          await page
-            .locator(selector)
-            .evaluateAll(
-              links =>
-                links.map(
-                  a => ({
-                    href:
-                      a.href,
-
-                    text:
-                      (
-                        a.innerText ||
-                        a.textContent ||
-                        ''
-                      )
-                        .replace(
-                          /\s+/g,
-                          ' '
-                        )
-                        .trim()
-                  })
-                )
-            );
-
-        results.push(
-          ...found
+                text:
+                  (
+                    a.innerText ||
+                    a.textContent ||
+                    ''
+                  )
+                    .replace(
+                      /\s+/g,
+                      ' '
+                    )
+                    .trim()
+              })
+            )
         );
-
-      } catch {
-        // Continue avec le sélecteur suivant.
-      }
-    }
 
     const hotelName =
       normalize(
@@ -729,7 +758,8 @@ async function directPlatformSearch(
     return [
       ...new Set(
         scored.map(
-          x => x.href
+          x =>
+            x.href
         )
       )
     ];
@@ -738,6 +768,12 @@ async function directPlatformSearch(
     await page.close();
   }
 }
+
+/*
+ * ======================================================
+ * RECHERCHE WEB
+ * ======================================================
+ */
 
 async function searchWeb(
   browser,
@@ -838,12 +874,15 @@ async function searchWeb(
             );
 
           if (url) {
-            urls.push(
-              url
-            );
+            urls.push(url);
           }
         }
 
+        /*
+         * On s'arrête uniquement
+         * après avoir trouvé une vraie
+         * URL du canal.
+         */
         if (
           urls.some(
             url =>
@@ -857,14 +896,14 @@ async function searchWeb(
         }
 
       } catch {
-        // Essayer le moteur suivant.
+        /*
+         * moteur suivant
+         */
       }
     }
 
     return [
-      ...new Set(
-        urls
-      )
+      ...new Set(urls)
     ];
 
   } finally {
@@ -872,15 +911,24 @@ async function searchWeb(
   }
 }
 
+/*
+ * ======================================================
+ * DÉCODAGE DES LIENS DE RECHERCHE
+ * ======================================================
+ */
+
 function unwrapSearchUrl(url) {
   try {
     const parsed =
       new URL(url);
 
+    /*
+     * DuckDuckGo
+     */
     const uddg =
-      parsed
-        .searchParams
-        .get('uddg');
+      parsed.searchParams.get(
+        'uddg'
+      );
 
     if (uddg) {
       return decodeURIComponent(
@@ -888,10 +936,13 @@ function unwrapSearchUrl(url) {
       );
     }
 
+    /*
+     * Redirection standard
+     */
     const direct =
-      parsed
-        .searchParams
-        .get('url');
+      parsed.searchParams.get(
+        'url'
+      );
 
     if (
       direct &&
@@ -902,10 +953,13 @@ function unwrapSearchUrl(url) {
       return direct;
     }
 
+    /*
+     * Bing
+     */
     const bing =
-      parsed
-        .searchParams
-        .get('u');
+      parsed.searchParams.get(
+        'u'
+      );
 
     if (bing) {
       const decoded =
@@ -931,7 +985,9 @@ function decodeBingUrl(value) {
       String(value);
 
     if (
-      encoded.startsWith('a1')
+      encoded.startsWith(
+        'a1'
+      )
     ) {
       encoded =
         encoded.slice(2);
@@ -974,6 +1030,12 @@ function decodeBingUrl(value) {
     return '';
   }
 }
+
+/*
+ * ======================================================
+ * VALIDATION DES DOMAINES
+ * ======================================================
+ */
 
 function matchesChannelUrl(
   url,
@@ -1069,7 +1131,7 @@ function matchesChannelUrl(
 
 function cleanCandidateUrl(url) {
   try {
-    const parsed =
+    const u =
       new URL(url);
 
     for (
@@ -1082,12 +1144,12 @@ function cleanCandidateUrl(url) {
         'utm_term'
       ]
     ) {
-      parsed
-        .searchParams
-        .delete(key);
+      u.searchParams.delete(
+        key
+      );
     }
 
-    return parsed.toString();
+    return u.toString();
 
   } catch {
     return '';
@@ -1104,13 +1166,17 @@ function candidateScore(
     channel === 'booking'
   ) {
     if (
-      /booking\.com/i.test(url)
+      /booking\.com/i.test(
+        url
+      )
     ) {
       score += 5;
     }
 
     if (
-      /\/hotel\//i.test(url)
+      /\/hotel\//i.test(
+        url
+      )
     ) {
       score += 5;
     }
@@ -1120,19 +1186,17 @@ function candidateScore(
     channel === 'expedia'
   ) {
     if (
-      /expedia\./i.test(url)
+      /expedia\./i.test(
+        url
+      )
     ) {
       score += 5;
     }
 
     if (
-      /hotels\.com/i.test(url)
-    ) {
-      score += 4;
-    }
-
-    if (
-      /hotel/i.test(url)
+      /hotel/i.test(
+        url
+      )
     ) {
       score += 3;
     }
@@ -1142,13 +1206,17 @@ function candidateScore(
     channel === 'tripadvisor'
   ) {
     if (
-      /tripadvisor\./i.test(url)
+      /tripadvisor\./i.test(
+        url
+      )
     ) {
       score += 5;
     }
 
     if (
-      /Hotel_Review/i.test(url)
+      /Hotel_Review/i.test(
+        url
+      )
     ) {
       score += 5;
     }
@@ -1158,21 +1226,27 @@ function candidateScore(
     channel === 'google'
   ) {
     if (
-      /google\./i.test(url)
+      /google\./i.test(
+        url
+      )
     ) {
       score += 3;
     }
 
     if (
-      /\/maps/i.test(url)
+      /\/maps/i.test(
+        url
+      )
     ) {
       score += 5;
     }
 
     if (
-      /\/travel/i.test(url)
+      /\/travel/i.test(
+        url
+      )
     ) {
-      score += 5;
+      score += 4;
     }
   }
 
@@ -1181,7 +1255,7 @@ function candidateScore(
 
 /*
  * ======================================================
- * VISITE
+ * VISITE DES PAGES
  * ======================================================
  */
 
@@ -1216,6 +1290,10 @@ async function visit(
     const finalUrl =
       page.url();
 
+    /*
+     * Protection contre les pages
+     * Bing / DuckDuckGo ou redirections.
+     */
     if (
       channel !== 'official' &&
       !matchesChannelUrl(
@@ -1246,10 +1324,9 @@ async function visit(
               .trim();
 
           const jsonld = [
-            ...document
-              .querySelectorAll(
-                'script[type="application/ld+json"]'
-              )
+            ...document.querySelectorAll(
+              'script[type="application/ld+json"]'
+            )
           ]
             .map(
               x =>
@@ -1360,15 +1437,14 @@ async function visit(
       return unavailable(
         channel,
         'Page bloquée ou contenu public insuffisant',
-        finalUrl
+        url
       );
     }
 
     return {
       ok: true,
       channel,
-      url:
-        finalUrl,
+      url: page.url(),
       ...data
     };
 
@@ -1450,7 +1526,8 @@ function buildChecks(
 
   const accessible =
     pages.filter(
-      p => p.ok
+      p =>
+        p.ok
     );
 
   const otaPages =
@@ -1462,6 +1539,9 @@ function buildChecks(
 
   const checks = [];
 
+  /*
+   * 1
+   */
   checks.push(
     checkOne(
       'identity',
@@ -1478,6 +1558,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 2
+   */
   checks.push(
     checkOne(
       'identity',
@@ -1494,6 +1577,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 3
+   */
   checks.push(
     checkOne(
       'contact',
@@ -1509,6 +1595,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 4
+   */
   checks.push(
     checkOne(
       'rooms',
@@ -1524,6 +1613,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 5
+   */
   checks.push(
     checkOne(
       'amenities',
@@ -1539,6 +1631,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 6
+   */
   checks.push(
     checkOne(
       'policies',
@@ -1554,6 +1649,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 7
+   */
   checks.push(
     checkOne(
       'policies',
@@ -1569,6 +1667,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 8
+   */
   checks.push(
     checkOne(
       'food',
@@ -1584,6 +1685,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 9
+   */
   checks.push(
     checkOne(
       'parking',
@@ -1599,6 +1703,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 10
+   */
   checks.push(
     checkOne(
       'reviews',
@@ -1614,6 +1721,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 11
+   */
   checks.push(
     checkOne(
       'direct',
@@ -1645,6 +1755,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 12
+   */
   checks.push(
     checkOne(
       'direct',
@@ -1713,6 +1826,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 13
+   */
   checks.push(
     checkOne(
       'price',
@@ -1734,6 +1850,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 14
+   */
   checks.push(
     checkOne(
       'content',
@@ -1748,6 +1867,9 @@ function buildChecks(
     )
   );
 
+  /*
+   * 15
+   */
   checks.push(
     checkOne(
       'content',
@@ -1769,6 +1891,10 @@ function buildChecks(
     )
   );
 
+  /*
+   * 16 à 19 :
+   * présence des quatre canaux
+   */
   for (
     const ota
     of otaPages
@@ -1780,18 +1906,21 @@ function buildChecks(
     );
   }
 
+  /*
+   * 20 :
+   * cohérence du nom
+   */
   checks.push(
-    compare(
+    compareHotelName(
       accessible,
-      'Cohérence du nom de l’établissement',
-      p =>
-        normalize(
-          hotelName(p)
-        ),
-      'Harmoniser le nom de l’établissement entre les canaux publics.'
+      hotel.hotel_name
     )
   );
 
+  /*
+   * 21 :
+   * cohérence horaires
+   */
   checks.push(
     compare(
       accessible,
@@ -1805,32 +1934,36 @@ function buildChecks(
     )
   );
 
+  /*
+   * 22 :
+   * présence restaurant
+   */
   checks.push(
-    compare(
+    comparePresence(
       accessible,
       'Cohérence restaurant / petit-déjeuner',
-      p =>
-        first(
-          p.text,
-          /(restaurant|petit.?déjeuner|breakfast).{0,120}/i
-        ),
+      /restaurant|petit.?déjeuner|breakfast/i,
       'Harmoniser les informations de restauration entre les canaux.'
     )
   );
 
+  /*
+   * 23 :
+   * présence parking
+   */
   checks.push(
-    compare(
+    comparePresence(
       accessible,
       'Cohérence parking',
-      p =>
-        first(
-          p.text,
-          /(parking|stationnement|garage).{0,120}/i
-        ),
+      /parking|stationnement|garage/i,
       'Harmoniser les informations de parking entre les canaux.'
     )
   );
 
+  /*
+   * 24 :
+   * prix publics
+   */
   checks.push(
     priceCompare(
       accessible
@@ -1839,6 +1972,12 @@ function buildChecks(
 
   return checks;
 }
+
+/*
+ * ======================================================
+ * CONTRÔLES SIMPLES
+ * ======================================================
+ */
 
 function checkOne(
   category,
@@ -1871,7 +2010,9 @@ function checkOne(
   if (ok) {
     let detail = '';
 
-    if (customEvidence) {
+    if (
+      customEvidence
+    ) {
       detail =
         customEvidence(
           page
@@ -1879,7 +2020,8 @@ function checkOne(
         '';
 
     } else if (
-      evidencePattern instanceof RegExp
+      evidencePattern
+      instanceof RegExp
     ) {
       detail =
         extractEvidence(
@@ -1950,6 +2092,268 @@ function checkChannelPresence(
   };
 }
 
+/*
+ * ======================================================
+ * COHÉRENCE DU NOM
+ * ======================================================
+ */
+
+function compareHotelName(
+  pages,
+  expectedName
+) {
+  if (
+    pages.length < 2
+  ) {
+    return unknown(
+      'consistency',
+      'Cohérence du nom de l’établissement',
+      'Moins de deux sources publiques comparables.',
+      ...pages.map(
+        p =>
+          p.url
+      )
+    );
+  }
+
+  const ignored =
+    new Set([
+      'hotel',
+      'hotellerie',
+      'restaurant',
+      'spa',
+      'le',
+      'la',
+      'les',
+      'de',
+      'du',
+      'des',
+      'et'
+    ]);
+
+  const tokens =
+    normalize(
+      expectedName
+    )
+      .split(' ')
+      .filter(
+        word =>
+          word.length >= 3 &&
+          !ignored.has(
+            word
+          )
+      );
+
+  const results =
+    pages.map(
+      page => {
+        const haystack =
+          normalize(
+            `${page.title || ''} ${safeDecode(page.url || '')}`
+          );
+
+        const matched =
+          tokens.filter(
+            token =>
+              haystack.includes(
+                token
+              )
+          );
+
+        const ratio =
+          tokens.length
+            ? matched.length /
+              tokens.length
+            : 0;
+
+        return {
+          channel:
+            page.channel,
+
+          url:
+            page.url,
+
+          ratio
+        };
+      }
+    );
+
+  const mismatches =
+    results.filter(
+      result =>
+        result.ratio <
+        0.6
+    );
+
+  return {
+    category:
+      'consistency',
+
+    label:
+      'Cohérence du nom de l’établissement',
+
+    status:
+      mismatches.length
+        ? 'fail'
+        : 'pass',
+
+    evidence:
+      mismatches.length
+        ? `Le nom semble insuffisamment concordant sur : ${mismatches
+            .map(
+              x =>
+                capitalize(
+                  x.channel
+                )
+            )
+            .join(', ')}.`
+        : `Le nom de l’établissement est concordant sur ${results.length} sources publiques.`,
+
+    recommendation:
+      'Harmoniser le nom de l’établissement entre les canaux publics.',
+
+    sources:
+      results.map(
+        x =>
+          x.url
+      )
+  };
+}
+
+/*
+ * ======================================================
+ * COHÉRENCE DE PRÉSENCE
+ * ======================================================
+ */
+
+function comparePresence(
+  pages,
+  label,
+  regex,
+  recommendation
+) {
+  if (
+    pages.length < 2
+  ) {
+    return unknown(
+      'consistency',
+      label,
+      'Moins de deux sources publiques comparables.',
+      ...pages.map(
+        p =>
+          p.url
+      )
+    );
+  }
+
+  const results =
+    pages.map(
+      page => ({
+        channel:
+          page.channel,
+
+        url:
+          page.url,
+
+        present:
+          regex.test(
+            `${page.text || ''} ${page.jsonld || ''}`
+          )
+      })
+    );
+
+  const positives =
+    results.filter(
+      x =>
+        x.present
+    );
+
+  const negatives =
+    results.filter(
+      x =>
+        !x.present
+    );
+
+  /*
+   * Tous disent oui
+   * ou tous disent non :
+   * pas de contradiction.
+   */
+  if (
+    positives.length === 0 ||
+    negatives.length === 0
+  ) {
+    return {
+      category:
+        'consistency',
+
+      label,
+
+      status:
+        'pass',
+
+      evidence:
+        positives.length ===
+        results.length
+          ? `Information détectée sur les ${results.length} sources accessibles.`
+          : `Information non détectée sur les ${results.length} sources accessibles ; aucune contradiction publique observée.`,
+
+      recommendation,
+
+      sources:
+        results.map(
+          x =>
+            x.url
+        )
+    };
+  }
+
+  /*
+   * Présente sur certains canaux
+   * mais pas les autres.
+   */
+  return {
+    category:
+      'consistency',
+
+    label,
+
+    status:
+      'fail',
+
+    evidence:
+      `Information détectée sur ${positives
+        .map(
+          x =>
+            capitalize(
+              x.channel
+            )
+        )
+        .join(', ')}, mais non détectée sur ${negatives
+        .map(
+          x =>
+            capitalize(
+              x.channel
+            )
+        )
+        .join(', ')}.`,
+
+    recommendation,
+
+    sources:
+      results.map(
+        x =>
+          x.url
+      )
+  };
+}
+
+/*
+ * ======================================================
+ * COMPARAISON GÉNÉRIQUE
+ * ======================================================
+ */
+
 function compare(
   pages,
   label,
@@ -1986,7 +2390,8 @@ function compare(
       label,
       'Moins de deux sources publiques comparables.',
       ...values.map(
-        x => x.url
+        x =>
+          x.url
       )
     );
   }
@@ -1994,7 +2399,8 @@ function compare(
   const unique = [
     ...new Set(
       values.map(
-        x => x.value
+        x =>
+          x.value
       )
     )
   ];
@@ -2019,10 +2425,17 @@ function compare(
 
     sources:
       values.map(
-        x => x.url
+        x =>
+          x.url
       )
   };
 }
+
+/*
+ * ======================================================
+ * COMPARAISON DES PRIX
+ * ======================================================
+ */
 
 function priceCompare(
   pages
@@ -2059,17 +2472,24 @@ function priceCompare(
       'Comparaison des prix publics',
       'Moins de deux tarifs publics accessibles ont été détectés.',
       ...values.map(
-        x => x.url
+        x =>
+          x.url
       )
     );
   }
 
+  /*
+   * On ne conclut jamais automatiquement
+   * à une disparité tarifaire sans mêmes
+   * dates, chambre et conditions.
+   */
   return unknown(
     'price',
     'Comparaison des prix publics',
     `${values.length} prix publics ont été détectés, mais une comparaison fiable nécessite les mêmes dates, la même occupation, la même chambre et les mêmes conditions.`,
     ...values.map(
-      x => x.url
+      x =>
+        x.url
     )
   );
 }
@@ -2101,7 +2521,7 @@ function unknown(
 
 /*
  * ======================================================
- * PRIORITÉS / IMPACTS
+ * PRIORITÉ / IMPACT
  * ======================================================
  */
 
@@ -2217,7 +2637,7 @@ function priorityWeight(
 
 /*
  * ======================================================
- * VÉRIFICATION DE L'HÔTEL
+ * CORRESPONDANCE AVEC L'HÔTEL
  * ======================================================
  */
 
@@ -2225,9 +2645,15 @@ function hotelMatchConfidence(
   page,
   hotel
 ) {
+  /*
+   * On utilise maintenant :
+   * - titre
+   * - URL
+   * - contenu visible
+   */
   const haystack =
     normalize(
-      `${page.title} ${page.text.slice(0, 6000)}`
+      `${page.title || ''} ${safeDecode(page.url || '')} ${page.text.slice(0, 6000)}`
     );
 
   const name =
@@ -2255,6 +2681,9 @@ function hotelMatchConfidence(
 
   let score = 0;
 
+  /*
+   * Nom exact
+   */
   if (
     name &&
     haystack.includes(
@@ -2264,6 +2693,9 @@ function hotelMatchConfidence(
     score += 5;
   }
 
+  /*
+   * Ville
+   */
   if (
     city &&
     haystack.includes(
@@ -2273,6 +2705,9 @@ function hotelMatchConfidence(
     score += 3;
   }
 
+  /*
+   * Mots importants du nom
+   */
   for (
     const word
     of significantWords
@@ -2336,14 +2771,12 @@ function extractEvidence(
       )
       .trim();
 
-  return (
-    value.length > 180
-      ? value.slice(
-          0,
-          177
-        ) + '...'
-      : value
-  );
+  return value.length > 180
+    ? value.slice(
+        0,
+        177
+      ) + '...'
+    : value;
 }
 
 function contains(
@@ -2399,19 +2832,6 @@ function first(
     : '';
 }
 
-function hotelName(
-  page
-) {
-  return (
-    page.title
-      ?.split(
-        /[|–—-]/
-      )[0]
-      ?.trim() ||
-    ''
-  );
-}
-
 function hostname(
   url
 ) {
@@ -2443,8 +2863,27 @@ function capitalize(
     ? value
         .charAt(0)
         .toUpperCase() +
-        value.slice(1)
+      value.slice(1)
     : '';
+}
+
+function safeDecode(
+  value
+) {
+  try {
+    return decodeURIComponent(
+      String(
+        value ||
+        ''
+      )
+    );
+
+  } catch {
+    return String(
+      value ||
+      ''
+    );
+  }
 }
 
 function cleanError(
