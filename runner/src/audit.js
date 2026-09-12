@@ -544,6 +544,23 @@ async function directPlatformSearch(
       2200
     );
 
+    console.log(
+  '[OTA PAGE]',
+  channel,
+  'url =',
+  page.url(),
+  'title =',
+  await page.title(),
+  'links =',
+  await page.locator('a').count(),
+  'text =',
+  (
+    await page.locator('body').innerText().catch(() => '')
+  )
+    .replace(/\s+/g, ' ')
+    .slice(0, 500)
+);
+
     const raw =
       await page
         .locator(
