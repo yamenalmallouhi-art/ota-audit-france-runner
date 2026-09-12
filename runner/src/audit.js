@@ -511,12 +511,12 @@ async function directPlatformSearch(
     },
 
     google: {
-      url:
-        `https://www.google.com/travel/hotels?q=${query}`,
+  url:
+    `https://www.google.com/travel/hotels?q=${query}`,
 
-      selector:
-        'a[href*="/travel/hotels/entity/"]'
-    }
+  selector:
+    'a[href*="/travel/"]'
+}
   };
 
   const config =
@@ -546,6 +546,41 @@ async function directPlatformSearch(
 
     console.log(
   '[OTA PAGE]',
+      if (channel === 'google') {
+  const currentUrl = page.url();
+  const currentTitle = await page.title();
+  const currentText = await page
+    .locator('body')
+    .innerText()
+    .catch(() => '');
+
+  const scoredPage = scoreHotelCandidate(
+    currentUrl,
+    `${currentTitle} ${currentText.slice(0, 5000)}`,
+    hotel,
+    channel
+  );
+
+  if (
+    matchesChannelUrl(currentUrl, channel) &&
+    isCredibleHotelCandidate(scoredPage, hotel)
+  ) {
+    console.log(
+      '[OTA GOOGLE PAGE]',
+      'accepted =',
+      currentUrl,
+      'title =',
+      currentTitle
+    );
+
+    return [
+      {
+        url: currentUrl,
+        text: `${currentTitle} ${currentText.slice(0, 5000)}`
+      }
+    ];
+  }
+}
   channel,
   'url =',
   page.url(),
