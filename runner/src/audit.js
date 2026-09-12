@@ -5,7 +5,6 @@ const CHANNELS = {
       `"${h.hotel_name}" "${h.city}" Booking.com`
     ]
   },
-
   expedia: {
     queries: h => [
       `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
@@ -14,7 +13,6 @@ const CHANNELS = {
       `"${h.hotel_name}" "${h.city}" Expedia`
     ]
   },
-
   google: {
     queries: h => [
       `site:google.com/travel/hotels "${h.hotel_name}" "${h.city}"`,
@@ -23,7 +21,6 @@ const CHANNELS = {
       `"${h.hotel_name}" "${h.city}" "Google Hotels"`
     ]
   },
-
   tripadvisor: {
     queries: h => [
       `site:tripadvisor.fr/Hotel_Review "${h.hotel_name}" "${h.city}"`,
@@ -50,13 +47,8 @@ const IGNORED_NAME_WORDS = new Set([
   'and'
 ]);
 
-export async function auditHotel(
-  browser,
-  hotel,
-  options = {}
-) {
+export async function auditHotel(browser, hotel, options = {}) {
   const timeout = options.timeout ?? 30000;
-
   const pages = [];
   const limitations = [];
 
@@ -82,14 +74,15 @@ export async function auditHotel(
         channel,
         timeout
       );
-console.log(
-  '[OTA DEBUG]',
-  channel,
-  'selected =',
-  result.url || 'NONE',
-  'candidates =',
-  result.candidates || []
-);
+
+      console.log(
+        '[OTA DEBUG]',
+        channel,
+        'selected =',
+        result.url || 'NONE',
+        'candidates =',
+        result.candidates || []
+      );
 
       if (!result.url) {
         pages.push(
@@ -98,7 +91,6 @@ console.log(
             'Aucune page publique fiable trouvée'
           )
         );
-
         continue;
       }
 
@@ -110,11 +102,10 @@ console.log(
       );
 
       if (page.ok) {
-        const confidence =
-          hotelMatchConfidence(
-            page,
-            hotel
-          );
+        const confidence = hotelMatchConfidence(
+          page,
+          hotel
+        );
 
         if (confidence === 'low') {
           pages.push(
@@ -124,12 +115,10 @@ console.log(
               result.url
             )
           );
-
           continue;
         }
 
-        page.match_confidence =
-          confidence;
+        page.match_confidence = confidence;
       }
 
       pages.push(page);
@@ -148,88 +137,56 @@ console.log(
     }
   }
 
-  const checks =
-    buildChecks(
-      pages,
-      hotel
-    );
+  const checks = buildChecks(
+    pages,
+    hotel
+  );
 
-  const available =
-    checks.filter(
-      check =>
-        check.status !== 'unknown'
-    );
+  const available = checks.filter(
+    check => check.status !== 'unknown'
+  );
 
-  const passed =
-    available.filter(
-      check =>
-        check.status === 'pass'
-    );
+  const passed = available.filter(
+    check => check.status === 'pass'
+  );
 
-  const failures =
-    checks.filter(
-      check =>
-        check.status === 'fail'
-    );
+  const failures = checks.filter(
+    check => check.status === 'fail'
+  );
 
-  const unknownChecks =
-    checks.filter(
-      check =>
-        check.status === 'unknown'
-    );
+  const unknownChecks = checks.filter(
+    check => check.status === 'unknown'
+  );
 
-  const score =
-    available.length
-      ? Math.round(
-          100 *
-          passed.length /
-          available.length
-        )
-      : 0;
+  const score = available.length
+    ? Math.round(
+        100 * passed.length / available.length
+      )
+    : 0;
 
-  const coverage =
-    checks.length
-      ? Math.round(
-          100 *
-          available.length /
-          checks.length
-        )
-      : 0;
+  const coverage = checks.length
+    ? Math.round(
+        100 * available.length / checks.length
+      )
+    : 0;
 
-  let findings =
-    failures.map(
-      check => ({
-        severity:
-          severityFor(check),
+  let findings = failures.map(
+    check => ({
+      severity: severityFor(check),
+      title: check.label,
+      evidence: check.evidence,
+      impact: impactFor(check),
+      recommendation: check.recommendation,
+      sources: check.sources
+    })
+  );
 
-        title:
-          check.label,
-
-        evidence:
-          check.evidence,
-
-        impact:
-          impactFor(check),
-
-        recommendation:
-          check.recommendation,
-
-        sources:
-          check.sources
-      })
-    );
-
-  if (
-    hotel.type === 'free'
-  ) {
-    if (
-      findings.length < 3
-    ) {
+  if (hotel.type === 'free') {
+    if (findings.length < 3) {
       findings.push(
         ...checks
           .filter(
-            check =>
-              check.status === 'pass'
+            check => check.status === 'pass'
           )
           .slice(
             0,
@@ -237,67 +194,39 @@ console.log(
           )
           .map(
             check => ({
-              severity:
-                'ok',
-
-              title:
-                check.label,
-
-              evidence:
-                check.evidence,
-
+              severity: 'ok',
+              title: check.label,
+              evidence: check.evidence,
               impact:
                 'Point conforme sur la source publique analysée.',
-
               recommendation:
                 'Maintenir cette information à jour.',
-
-              sources:
-                check.sources
+              sources: check.sources
             })
           )
       );
     }
 
-    findings =
-      findings.slice(
-        0,
-        3
-      );
+    findings = findings.slice(0, 3);
   }
 
-  if (
-    hotel.type === 'paid'
-  ) {
+  if (hotel.type === 'paid') {
     findings.push(
       ...unknownChecks
         .filter(
-          check =>
-            check.category === 'channel'
+          check => check.category === 'channel'
         )
-        .slice(
-          0,
-          4
-        )
+        .slice(0, 4)
         .map(
           check => ({
-            severity:
-              'opportunité',
-
-            title:
-              `${check.label} - non vérifié`,
-
-            evidence:
-              check.evidence,
-
+            severity: 'opportunité',
+            title: `${check.label} - non vérifié`,
+            evidence: check.evidence,
             impact:
               'Ce canal n’a pas pu être contrôlé automatiquement avec un niveau de fiabilité suffisant.',
-
             recommendation:
               'Vérifier manuellement ce canal s’il représente une part importante de la distribution de l’établissement.',
-
-            sources:
-              check.sources
+            sources: check.sources
           })
         )
     );
@@ -312,8 +241,7 @@ console.log(
             page.url
         )
         .map(
-          page =>
-            page.url
+          page => page.url
         )
     )
   ];
@@ -326,21 +254,17 @@ console.log(
       priorityWeight(a)
   );
 
-  const h48 =
-    commercialFailures
-      .slice(0, 3)
-      .map(
-        item =>
-          item.recommendation
-      );
+  const h48 = commercialFailures
+    .slice(0, 3)
+    .map(
+      item => item.recommendation
+    );
 
-  const d7 =
-    commercialFailures
-      .slice(3, 6)
-      .map(
-        item =>
-          item.recommendation
-      );
+  const d7 = commercialFailures
+    .slice(3, 6)
+    .map(
+      item => item.recommendation
+    );
 
   if (!d7.length) {
     d7.push(
@@ -351,38 +275,22 @@ console.log(
   const summary =
     `${available.length} contrôles observables sur ${checks.length} (${coverage}% de couverture). ` +
     `${failures.length} anomalie(s) vérifiée(s). ${passed.length} point(s) conforme(s). ` +
-    `Les contrôles inaccessibles sont exclus du score.`;
+    'Les contrôles inaccessibles sont exclus du score.';
 
   return {
-    hotel_name:
-      hotel.hotel_name,
-
-    city:
-      hotel.city,
-
-    audited_at:
-      new Date().toISOString(),
+    hotel_name: hotel.hotel_name,
+    city: hotel.city,
+    audited_at: new Date().toISOString(),
 
     score,
 
     score_basis: {
-      available:
-        available.length,
-
-      total:
-        checks.length,
-
-      passed:
-        passed.length,
-
-      failed:
-        failures.length,
-
-      unknown:
-        unknownChecks.length,
-
+      available: available.length,
+      total: checks.length,
+      passed: passed.length,
+      failed: failures.length,
+      unknown: unknownChecks.length,
       coverage,
-
       formula:
         'passed / available; unknown excluded'
     },
@@ -409,8 +317,7 @@ console.log(
 
       ...pages
         .filter(
-          page =>
-            !page.ok
+          page => !page.ok
         )
         .map(
           page =>
@@ -430,9 +337,6 @@ async function discoverChannel(
 ) {
   let directCandidates = [];
 
-  /*
-   * 1. TEST RECHERCHE DIRECTE
-   */
   try {
     directCandidates =
       await directPlatformSearch(
@@ -465,9 +369,6 @@ async function discoverChannel(
     ...directCandidates
   ];
 
-  /*
-   * 2. TEST MOTEURS DE RECHERCHE
-   */
   if (!candidates.length) {
     for (
       const query
@@ -568,102 +469,7 @@ async function discoverChannel(
       unique
         .slice(0, 5)
         .map(
-          item =>
-            item.url
-        )
-  };
-} {
-  let candidates = [];
-
-  try {
-    candidates =
-      await directPlatformSearch(
-        browser,
-        hotel,
-        channel,
-        timeout
-      );
-
-  } catch {
-    candidates = [];
-  }
-
-  if (!candidates.length) {
-    for (
-      const query
-      of CHANNELS[channel].queries(hotel)
-    ) {
-      const found =
-        await searchWeb(
-          browser,
-          query,
-          channel,
-          hotel,
-          timeout
-        );
-
-      candidates.push(
-        ...found
-      );
-
-      if (
-        candidates.length
-      ) {
-        break;
-      }
-    }
-  }
-
-  const unique =
-    dedupeCandidates(
-      candidates
-    )
-      .filter(
-        candidate =>
-          matchesChannelUrl(
-            candidate.url,
-            channel
-          )
-      )
-      .map(
-        candidate => ({
-          ...candidate,
-
-          ...scoreHotelCandidate(
-            candidate.url,
-            candidate.text,
-            hotel,
-            channel
-          )
-        })
-      )
-      .filter(
-        candidate =>
-          isCredibleHotelCandidate(
-            candidate,
-            hotel
-          )
-      )
-      .sort(
-        (a, b) =>
-          b.score -
-          a.score
-      );
-
-  return {
-    url:
-      unique[0]?.url ||
-      '',
-
-    candidates:
-      unique
-        .slice(
-          0,
-          5
-        )
-        .map(
-          item =>
-            item.url
+          item => item.url
         )
   };
 }
@@ -1160,7 +966,8 @@ function dedupeCandidates(
 
     const cleaned =
       cleanCandidateUrl(
-        raw.url || ''
+        raw.url ||
+        ''
       );
 
     if (!cleaned) {
@@ -1207,7 +1014,9 @@ function unwrapSearchUrl(
 ) {
   try {
     const parsed =
-      new URL(url);
+      new URL(
+        url
+      );
 
     const uddg =
       parsed.searchParams.get(
@@ -1272,7 +1081,9 @@ function decodeBingUrl(
       )
     ) {
       encoded =
-        encoded.slice(2);
+        encoded.slice(
+          2
+        );
     }
 
     encoded =
@@ -1287,7 +1098,8 @@ function decodeBingUrl(
         );
 
     while (
-      encoded.length % 4
+      encoded.length %
+      4
     ) {
       encoded += '=';
     }
@@ -1319,7 +1131,9 @@ function matchesChannelUrl(
 ) {
   try {
     const parsed =
-      new URL(url);
+      new URL(
+        url
+      );
 
     const host =
       parsed.hostname
@@ -1337,7 +1151,8 @@ function matchesChannelUrl(
       channel === 'booking'
     ) {
       return (
-        host === 'booking.com' ||
+        host ===
+        'booking.com' ||
         host.endsWith(
           '.booking.com'
         )
@@ -1354,7 +1169,8 @@ function matchesChannelUrl(
         host.includes(
           '.expedia.'
         ) ||
-        host === 'hotels.com' ||
+        host ===
+        'hotels.com' ||
         host.endsWith(
           '.hotels.com'
         )
@@ -1410,7 +1226,9 @@ function cleanCandidateUrl(
 ) {
   try {
     const parsed =
-      new URL(url);
+      new URL(
+        url
+      );
 
     for (
       const key
@@ -1498,7 +1316,8 @@ function candidateScore(
   }
 
   if (
-    channel === 'tripadvisor'
+    channel ===
+    'tripadvisor'
   ) {
     if (
       /tripadvisor\./i.test(
@@ -2111,7 +1930,8 @@ function buildChecks(
       'Contenu hôtelier substantiel',
       official,
       page =>
-        page.text.length > 1200,
+        page.text.length >
+        1200,
       'Le contenu public détecté est très limité.',
       'Enrichir les informations utiles sur les chambres, services, localisation et expérience.'
     )
@@ -2218,7 +2038,9 @@ function checkOne(
 
   const ok =
     Boolean(
-      test(page)
+      test(
+        page
+      )
     );
 
   let evidence =
