@@ -1,0 +1,45 @@
+name: OTA Audit browser runner
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ota-audit-runner
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier le PHP Hostinger
+        run: |
+          find deploy tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -d zend.assertions=1 -d assert.exception=1 tests/run.php
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - working-directory: runner
+        run: npm install --ignore-scripts
+
+      - working-directory: runner
+        run: npm test
+
+      - working-directory: runner
+        run: npx playwright install --with-deps chromium
+
+      - working-directory: runner
+        env:
+          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
+          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
+        run: npm run audit
