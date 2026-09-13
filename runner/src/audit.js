@@ -10,7 +10,6 @@ const CHANNELS = {
     queries: h => [
       `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
       `site:expedia.com "${h.hotel_name}" "${h.city}"`,
-      `site:hotels.com "${h.hotel_name}" "${h.city}"`,
       `"${h.hotel_name}" "${h.city}" Expedia`
     ]
   },
@@ -144,13 +143,13 @@ export async function auditHotel(browser, hotel, options = {}) {
   }
 
   /*
-   * Google Hotels peut afficher des offres Booking / Expedia
-   * correspondant précisément à l'hôtel.
+   * Une présence Booking ou Expedia peut être observée
+   * indirectement via Google Hotels.
    *
-   * On utilise cette information uniquement comme preuve
-   * INDIRECTE de présence.
-   *
-   * On ne prétend jamais avoir vérifié directement la fiche OTA.
+   * IMPORTANT :
+   * - Booking.com prouve uniquement Booking
+   * - Expedia.com prouve uniquement Expedia
+   * - Hotels.com NE prouve PAS Expedia
    */
   enrichIndirectChannelEvidence(
     pages,
@@ -593,10 +592,11 @@ async function directPlatformSearch(
     );
 
     /*
-     * Google Hotels redirige parfois vers /travel/search.
+     * Google peut rediriger /travel/hotels
+     * vers /travel/search.
      *
-     * Si la page correspond clairement à l'hôtel demandé,
-     * elle est acceptée directement.
+     * Si la page correspond clairement à l'hôtel,
+     * on l'accepte.
      */
     if (channel === 'google') {
       const currentUrl =
@@ -614,7 +614,7 @@ async function directPlatformSearch(
       const scoredPage =
         scoreHotelCandidate(
           currentUrl,
-          `${currentTitle} ${currentText.slice(0, 5000)}`,
+          `${currentTitle} ${currentText.slice(0, 10000)}`,
           hotel,
           channel
         );
@@ -642,8 +642,13 @@ async function directPlatformSearch(
             url:
               currentUrl,
 
+            /*
+             * On garde assez de texte pour que la détection
+             * indirecte Booking / Expedia ait accès au bloc
+             * hôtel + prix + fournisseur.
+             */
             text:
-              `${currentTitle} ${currentText.slice(0, 5000)}`
+              `${currentTitle}\n${currentText.slice(0, 20000)}`
           }
         ];
       }
@@ -905,9 +910,9 @@ async function searchWeb(
 }
 
 /*
- * ---------------------------------------------------------
- * PREUVE INDIRECTE VIA GOOGLE HOTELS
- * ---------------------------------------------------------
+ * =========================================================
+ * PREUVES INDIRECTES VIA GOOGLE HOTELS
+ * =========================================================
  */
 
 function enrichIndirectChannelEvidence(
@@ -925,16 +930,23 @@ function enrichIndirectChannelEvidence(
     return;
   }
 
-  for (const channel of [
-    'booking',
-    'expedia'
-  ]) {
+  for (
+    const channel
+    of [
+      'booking',
+      'expedia'
+    ]
+  ) {
     const targetPage =
       pages.find(
         page =>
           page.channel === channel
       );
 
+    /*
+     * Si la fiche OTA a été vérifiée directement,
+     * on n'a évidemment pas besoin d'une preuve indirecte.
+     */
     if (
       !targetPage ||
       targetPage.ok
@@ -953,9 +965,14 @@ function enrichIndirectChannelEvidence(
       continue;
     }
 
-    targetPage.indirect_presence = true;
-    targetPage.indirect_source = googlePage.url;
-    targetPage.indirect_evidence = evidence;
+    targetPage.indirect_presence =
+      true;
+
+    targetPage.indirect_source =
+      googlePage.url;
+
+    targetPage.indirect_evidence =
+      evidence;
 
     console.log(
       '[OTA INDIRECT]',
@@ -971,20 +988,29 @@ function detectIndirectProviderOnGoogle(
   hotel,
   channel
 ) {
-  const text =
+  const rawText =
     String(
       googlePage.text ||
       ''
     );
 
+  if (!rawText) {
+    return '';
+  }
+
   const normalizedText =
     normalize(
-      text
+      rawText
     );
 
   const hotelName =
     normalize(
       hotel.hotel_name
+    );
+
+  const city =
+    normalize(
+      hotel.city
     );
 
   if (
@@ -996,23 +1022,30 @@ function detectIndirectProviderOnGoogle(
     return '';
   }
 
-  const providers =
+  /*
+   * STRICT :
+   *
+   * Expedia.com uniquement pour Expedia.
+   * Hotels.com n'est volontairement PAS utilisé.
+   */
+  const provider =
     channel === 'booking'
-      ? [
-          'booking com'
-        ]
-      : [
-          'expedia com',
-          'hotels com'
-        ];
+      ? 'booking com'
+      : channel === 'expedia'
+        ? 'expedia com'
+        : '';
 
-  let startIndex = 0;
+  if (!provider) {
+    return '';
+  }
+
+  let searchFrom = 0;
 
   while (true) {
     const hotelIndex =
       normalizedText.indexOf(
         hotelName,
-        startIndex
+        searchFrom
       );
 
     if (
@@ -1022,34 +1055,82 @@ function detectIndirectProviderOnGoogle(
     }
 
     /*
-     * On regarde uniquement une fenêtre relativement courte
-     * APRÈS le nom exact de l'hôtel.
+     * Fenêtre courte autour du nom de l'hôtel.
      *
-     * Cela limite fortement le risque de prendre l'offre
-     * d'un établissement voisin.
+     * 120 caractères avant :
+     * permet de capter un éventuel fournisseur placé juste
+     * avant le nom.
+     *
+     * 500 caractères après :
+     * couvre le bloc prix / note / fournisseur sans aller
+     * trop loin vers un autre hôtel.
      */
-    const window =
+    const before =
+      Math.max(
+        0,
+        hotelIndex - 120
+      );
+
+    const after =
+      Math.min(
+        normalizedText.length,
+        hotelIndex +
+          hotelName.length +
+          500
+      );
+
+    const localWindow =
       normalizedText.slice(
-        hotelIndex,
-        hotelIndex + 700
+        before,
+        after
       );
 
-    const matchedProvider =
-      providers.find(
-        provider =>
-          window.includes(
-            provider
+    /*
+     * Le fournisseur doit réellement apparaître
+     * dans cette fenêtre locale.
+     */
+    const providerIndex =
+      localWindow.indexOf(
+        provider
+      );
+
+    if (
+      providerIndex !== -1
+    ) {
+      /*
+       * Renforcement facultatif :
+       * si la ville est disponible dans le même bloc,
+       * cela augmente encore la confiance.
+       *
+       * On ne l'exige pas car certains blocs Google
+       * n'affichent pas la ville.
+       */
+      const cityNearby =
+        Boolean(
+          city &&
+          localWindow.includes(
+            city
           )
-      );
+        );
 
-    if (matchedProvider) {
+      const providerName =
+        channel === 'booking'
+          ? 'Booking.com'
+          : 'Expedia.com';
+
       return (
-        `${providerDisplayName(matchedProvider)} détecté à proximité du nom exact ` +
-        `« ${hotel.hotel_name} » dans Google Hotels.`
+        `${providerName} détecté dans le bloc Google Hotels associé au nom exact ` +
+        `« ${hotel.hotel_name} »` +
+        (
+          cityNearby
+            ? ` à ${hotel.city}`
+            : ''
+        ) +
+        '.'
       );
     }
 
-    startIndex =
+    searchFrom =
       hotelIndex +
       hotelName.length;
   }
@@ -1057,37 +1138,10 @@ function detectIndirectProviderOnGoogle(
   return '';
 }
 
-function providerDisplayName(
-  normalizedProvider
-) {
-  if (
-    normalizedProvider ===
-    'booking com'
-  ) {
-    return 'Booking.com';
-  }
-
-  if (
-    normalizedProvider ===
-    'expedia com'
-  ) {
-    return 'Expedia.com';
-  }
-
-  if (
-    normalizedProvider ===
-    'hotels com'
-  ) {
-    return 'Hotels.com';
-  }
-
-  return normalizedProvider;
-}
-
 /*
- * ---------------------------------------------------------
+ * =========================================================
  * SCORING DES CANDIDATS
- * ---------------------------------------------------------
+ * =========================================================
  */
 
 function scoreHotelCandidate(
@@ -1457,11 +1511,6 @@ function matchesChannelUrl(
         ) ||
         host.includes(
           '.expedia.'
-        ) ||
-        host ===
-        'hotels.com' ||
-        host.endsWith(
-          '.hotels.com'
         )
       );
     }
@@ -1588,14 +1637,6 @@ function candidateScore(
     }
 
     if (
-      /hotels\.com/i.test(
-        url
-      )
-    ) {
-      score += 4;
-    }
-
-    if (
       /Description-Hotel|Hotel-Information/i.test(
         url
       )
@@ -1656,9 +1697,9 @@ function candidateScore(
 }
 
 /*
- * ---------------------------------------------------------
+ * =========================================================
  * VISITE DES PAGES
- * ---------------------------------------------------------
+ * =========================================================
  */
 
 async function visit(
@@ -1925,9 +1966,9 @@ function unavailable(
 }
 
 /*
- * ---------------------------------------------------------
+ * =========================================================
  * CONTRÔLES
- * ---------------------------------------------------------
+ * =========================================================
  */
 
 function buildChecks(
@@ -2162,8 +2203,7 @@ function buildChecks(
                 `${link.text} ${link.href}`
               ) &&
               host &&
-              host !==
-              officialHost
+              host !== officialHost
             );
           }
         );
@@ -2190,8 +2230,7 @@ function buildChecks(
                   `${candidate.text} ${candidate.href}`
                 ) &&
                 host &&
-                host !==
-                officialHost
+                host !== officialHost
               );
             }
           );
@@ -2230,8 +2269,7 @@ function buildChecks(
       'Contenu hôtelier substantiel',
       official,
       page =>
-        page.text.length >
-        1200,
+        page.text.length > 1200,
       'Le contenu public détecté est très limité.',
       'Enrichir les informations utiles sur les chambres, services, localisation et expérience.'
     )
@@ -2401,13 +2439,6 @@ function checkChannelPresence(
   const label =
     `Présence publique ${capitalize(page.channel)}`;
 
-  /*
-   * Présence observée indirectement via Google Hotels.
-   *
-   * Ce contrôle peut être validé comme "présence observée",
-   * mais le texte indique explicitement que la fiche OTA
-   * n'a pas été visitée directement.
-   */
   if (
     page?.indirect_presence
   ) {
@@ -2532,8 +2563,7 @@ function compareHotelName(
   const mismatches =
     results.filter(
       result =>
-        result.ratio <
-        0.6
+        result.ratio < 0.6
     );
 
   return {
@@ -2841,12 +2871,6 @@ function unknown(
   };
 }
 
-/*
- * ---------------------------------------------------------
- * PRIORITÉ / IMPACT
- * ---------------------------------------------------------
- */
-
 function severityFor(
   check
 ) {
@@ -2982,12 +3006,6 @@ function priorityWeight(
   );
 }
 
-/*
- * ---------------------------------------------------------
- * CONFIANCE DE CORRESPONDANCE
- * ---------------------------------------------------------
- */
-
 function hotelMatchConfidence(
   page,
   hotel
@@ -3058,12 +3076,6 @@ function hotelMatchConfidence(
   return 'low';
 }
 
-/*
- * ---------------------------------------------------------
- * UTILITAIRES
- * ---------------------------------------------------------
- */
-
 function extractEvidence(
   text,
   regex
@@ -3092,13 +3104,11 @@ function extractEvidence(
       )
       .trim();
 
-  return value.length >
-    180
+  return value.length > 180
     ? value.slice(
         0,
         177
-      ) +
-      '...'
+      ) + '...'
     : value;
 }
 
