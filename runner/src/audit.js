@@ -10,6 +10,7 @@ const CHANNELS = {
     queries: h => [
       `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
       `site:expedia.com "${h.hotel_name}" "${h.city}"`,
+      `site:hotels.com "${h.hotel_name}" "${h.city}"`,
       `"${h.hotel_name}" "${h.city}" Expedia`
     ]
   },
@@ -142,15 +143,6 @@ export async function auditHotel(browser, hotel, options = {}) {
     }
   }
 
-  /*
-   * Une présence Booking ou Expedia peut être observée
-   * indirectement via Google Hotels.
-   *
-   * IMPORTANT :
-   * - Booking.com prouve uniquement Booking
-   * - Expedia.com prouve uniquement Expedia
-   * - Hotels.com NE prouve PAS Expedia
-   */
   enrichIndirectChannelEvidence(
     pages,
     hotel
@@ -591,13 +583,6 @@ async function directPlatformSearch(
         .slice(0, 500)
     );
 
-    /*
-     * Google peut rediriger /travel/hotels
-     * vers /travel/search.
-     *
-     * Si la page correspond clairement à l'hôtel,
-     * on l'accepte.
-     */
     if (channel === 'google') {
       const currentUrl =
         page.url();
@@ -614,7 +599,7 @@ async function directPlatformSearch(
       const scoredPage =
         scoreHotelCandidate(
           currentUrl,
-          `${currentTitle} ${currentText.slice(0, 10000)}`,
+          `${currentTitle} ${currentText.slice(0, 12000)}`,
           hotel,
           channel
         );
@@ -642,11 +627,6 @@ async function directPlatformSearch(
             url:
               currentUrl,
 
-            /*
-             * On garde assez de texte pour que la détection
-             * indirecte Booking / Expedia ait accès au bloc
-             * hôtel + prix + fournisseur.
-             */
             text:
               `${currentTitle}\n${currentText.slice(0, 20000)}`
           }
@@ -896,7 +876,7 @@ async function searchWeb(
         }
 
       } catch {
-        // Essayer le moteur suivant.
+        // moteur suivant
       }
     }
 
@@ -908,12 +888,6 @@ async function searchWeb(
     await page.close();
   }
 }
-
-/*
- * =========================================================
- * PREUVES INDIRECTES VIA GOOGLE HOTELS
- * =========================================================
- */
 
 function enrichIndirectChannelEvidence(
   pages,
@@ -930,23 +904,16 @@ function enrichIndirectChannelEvidence(
     return;
   }
 
-  for (
-    const channel
-    of [
-      'booking',
-      'expedia'
-    ]
-  ) {
+  for (const channel of [
+    'booking',
+    'expedia'
+  ]) {
     const targetPage =
       pages.find(
         page =>
           page.channel === channel
       );
 
-    /*
-     * Si la fiche OTA a été vérifiée directement,
-     * on n'a évidemment pas besoin d'une preuve indirecte.
-     */
     if (
       !targetPage ||
       targetPage.ok
@@ -965,14 +932,9 @@ function enrichIndirectChannelEvidence(
       continue;
     }
 
-    targetPage.indirect_presence =
-      true;
-
-    targetPage.indirect_source =
-      googlePage.url;
-
-    targetPage.indirect_evidence =
-      evidence;
+    targetPage.indirect_presence = true;
+    targetPage.indirect_source = googlePage.url;
+    targetPage.indirect_evidence = evidence;
 
     console.log(
       '[OTA INDIRECT]',
@@ -988,19 +950,15 @@ function detectIndirectProviderOnGoogle(
   hotel,
   channel
 ) {
-  const rawText =
+  const text =
     String(
       googlePage.text ||
       ''
     );
 
-  if (!rawText) {
-    return '';
-  }
-
   const normalizedText =
     normalize(
-      rawText
+      text
     );
 
   const hotelName =
@@ -1022,30 +980,18 @@ function detectIndirectProviderOnGoogle(
     return '';
   }
 
-  /*
-   * STRICT :
-   *
-   * Expedia.com uniquement pour Expedia.
-   * Hotels.com n'est volontairement PAS utilisé.
-   */
   const provider =
     channel === 'booking'
       ? 'booking com'
-      : channel === 'expedia'
-        ? 'expedia com'
-        : '';
+      : 'expedia com';
 
-  if (!provider) {
-    return '';
-  }
-
-  let searchFrom = 0;
+  let startIndex = 0;
 
   while (true) {
     const hotelIndex =
       normalizedText.indexOf(
         hotelName,
-        searchFrom
+        startIndex
       );
 
     if (
@@ -1054,95 +1000,63 @@ function detectIndirectProviderOnGoogle(
       break;
     }
 
-    /*
-     * Fenêtre courte autour du nom de l'hôtel.
-     *
-     * 120 caractères avant :
-     * permet de capter un éventuel fournisseur placé juste
-     * avant le nom.
-     *
-     * 500 caractères après :
-     * couvre le bloc prix / note / fournisseur sans aller
-     * trop loin vers un autre hôtel.
-     */
     const before =
-      Math.max(
-        0,
-        hotelIndex - 120
+      normalizedText.slice(
+        Math.max(
+          0,
+          hotelIndex - 250
+        ),
+        hotelIndex
       );
 
     const after =
-      Math.min(
-        normalizedText.length,
-        hotelIndex +
-          hotelName.length +
-          500
-      );
-
-    const localWindow =
       normalizedText.slice(
-        before,
-        after
+        hotelIndex,
+        hotelIndex + 1800
       );
 
-    /*
-     * Le fournisseur doit réellement apparaître
-     * dans cette fenêtre locale.
-     */
-    const providerIndex =
-      localWindow.indexOf(
+    const block =
+      `${before} ${after}`;
+
+    const hotelStillPresent =
+      block.includes(
+        hotelName
+      );
+
+    const cityPresent =
+      !city ||
+      block.includes(
+        city
+      );
+
+    const providerPresent =
+      block.includes(
         provider
       );
 
     if (
-      providerIndex !== -1
+      hotelStillPresent &&
+      cityPresent &&
+      providerPresent
     ) {
-      /*
-       * Renforcement facultatif :
-       * si la ville est disponible dans le même bloc,
-       * cela augmente encore la confiance.
-       *
-       * On ne l'exige pas car certains blocs Google
-       * n'affichent pas la ville.
-       */
-      const cityNearby =
-        Boolean(
-          city &&
-          localWindow.includes(
-            city
-          )
-        );
-
-      const providerName =
+      const display =
         channel === 'booking'
           ? 'Booking.com'
           : 'Expedia.com';
 
       return (
-        `${providerName} détecté dans le bloc Google Hotels associé au nom exact ` +
-        `« ${hotel.hotel_name} »` +
-        (
-          cityNearby
-            ? ` à ${hotel.city}`
-            : ''
-        ) +
-        '.'
+        `${display} détecté dans le bloc Google Hotels associé au nom exact ` +
+        `« ${hotel.hotel_name} »${hotel.city ? ` à ${hotel.city}` : ''}.`
       );
     }
 
-    searchFrom =
+    startIndex =
       hotelIndex +
       hotelName.length;
   }
 
   return '';
 }
-
-/*
- * =========================================================
- * SCORING DES CANDIDATS
- * =========================================================
- */
 
 function scoreHotelCandidate(
   url,
@@ -1696,12 +1610,6 @@ function candidateScore(
   return score;
 }
 
-/*
- * =========================================================
- * VISITE DES PAGES
- * =========================================================
- */
-
 async function visit(
   browser,
   url,
@@ -1965,12 +1873,6 @@ function unavailable(
   };
 }
 
-/*
- * =========================================================
- * CONTRÔLES
- * =========================================================
- */
-
 function buildChecks(
   pages,
   hotel
@@ -2203,7 +2105,8 @@ function buildChecks(
                 `${link.text} ${link.href}`
               ) &&
               host &&
-              host !== officialHost
+              host !==
+              officialHost
             );
           }
         );
@@ -2230,7 +2133,8 @@ function buildChecks(
                   `${candidate.text} ${candidate.href}`
                 ) &&
                 host &&
-                host !== officialHost
+                host !==
+                officialHost
               );
             }
           );
@@ -2269,7 +2173,8 @@ function buildChecks(
       'Contenu hôtelier substantiel',
       official,
       page =>
-        page.text.length > 1200,
+        page.text.length >
+        1200,
       'Le contenu public détecté est très limité.',
       'Enrichir les informations utiles sur les chambres, services, localisation et expérience.'
     )
@@ -2563,7 +2468,8 @@ function compareHotelName(
   const mismatches =
     results.filter(
       result =>
-        result.ratio < 0.6
+        result.ratio <
+        0.6
     );
 
   return {
@@ -3104,11 +3010,13 @@ function extractEvidence(
       )
       .trim();
 
-  return value.length > 180
+  return value.length >
+    180
     ? value.slice(
         0,
         177
-      ) + '...'
+      ) +
+      '...'
     : value;
 }
 
