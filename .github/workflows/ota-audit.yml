@@ -3,10 +3,6 @@ name: OTA Audit browser runner
 on:
   schedule:
     - cron: '*/5 * * * *'
-
-    # Recherche + audit commercial quotidien.
-    # 06:17 UTC évite de tomber en même temps
-    # que le cron toutes les 5 minutes.
     - cron: '17 6 * * *'
 
   workflow_dispatch:
@@ -48,7 +44,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Trouver de nouveaux hôtels
-        if: github.event.schedule == '17 6 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
@@ -58,13 +54,22 @@ jobs:
         run: node src/prospect-finder.js
 
       - name: Auditer les prospects commerciaux
-        if: github.event.schedule == '17 6 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
           PROSPECT_AUDIT_LIMIT: '10'
         run: node src/prospect-auditor.js
+
+      - name: Générer 2 messages de test
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: runner
+        env:
+          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
+          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
+          PROSPECT_MESSAGE_LIMIT: '2'
+        run: node src/prospect-message-generator.js
 
       - name: Exécuter les audits clients
         working-directory: runner
