@@ -43,6 +43,10 @@ jobs:
         working-directory: runner
         run: npx playwright install --with-deps chromium
 
+      # ---------------------------------------------------------
+      # PROSPECTION QUOTIDIENNE
+      # ---------------------------------------------------------
+
       - name: Trouver de nouveaux hôtels
         if: github.event.schedule == '17 6 * * *'
         working-directory: runner
@@ -53,7 +57,7 @@ jobs:
           PROSPECT_MAX_PER_RUN: '100'
         run: node src/prospect-finder.js
 
-      - name: Auditer les prospects commerciaux
+      - name: Auditer 10 prospects commerciaux
         if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
@@ -62,16 +66,17 @@ jobs:
           PROSPECT_AUDIT_LIMIT: '10'
         run: node src/prospect-auditor.js
 
-      - name: Réauditer 2 hôtels de test
-        if: github.event_name == 'workflow_dispatch'
+      - name: Générer jusqu'à 10 messages commerciaux
+        if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-        run: node src/prospect-reaudit.js
+          PROSPECT_MESSAGE_LIMIT: '10'
+        run: node src/prospect-message-generator.js
 
-      - name: Réinitialiser les 2 messages de test
-        if: github.event_name == 'workflow_dispatch'
+      - name: Envoyer maximum 10 emails commerciaux
+        if: github.event.schedule == '17 6 * * *'
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
@@ -79,16 +84,11 @@ jobs:
           curl --fail --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $OTA_RUNNER_TOKEN" \
-            "$OTA_BASE_URL/automation/reset-2-messages.php"
+            "$OTA_BASE_URL/automation/send-prospect-emails.php"
 
-      - name: Générer 2 messages de test
-        if: github.event_name == 'workflow_dispatch'
-        working-directory: runner
-        env:
-          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
-          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_MESSAGE_LIMIT: '2'
-        run: node src/prospect-message-generator.js
+      # ---------------------------------------------------------
+      # AUDITS CLIENTS
+      # ---------------------------------------------------------
 
       - name: Exécuter les audits clients
         working-directory: runner
@@ -97,8 +97,7 @@ jobs:
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
         run: npm run audit
 
-      - name: Envoyer les 2 premiers emails commerciaux
-        if: github.event_name == 'workflow_dispatch'
+      - name: Finaliser les audits et envoyer les emails clients
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
@@ -106,4 +105,4 @@ jobs:
           curl --fail --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $OTA_RUNNER_TOKEN" \
-            "$OTA_BASE_URL/automation/send-2-prospect-emails.php"
+            "$OTA_BASE_URL/automation/worker-trigger.php"
