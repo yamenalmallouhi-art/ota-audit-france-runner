@@ -62,14 +62,13 @@ jobs:
           PROSPECT_AUDIT_LIMIT: '10'
         run: node src/prospect-auditor.js
 
-      - name: Générer 2 messages de test
+      - name: Réauditer 2 hôtels de test
         if: github.event_name == 'workflow_dispatch'
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_MESSAGE_LIMIT: '2'
-        run: node src/prospect-message-generator.js
+        run: node src/prospect-reaudit-test.js
 
       - name: Exécuter les audits clients
         working-directory: runner
