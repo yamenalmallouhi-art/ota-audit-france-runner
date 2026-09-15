@@ -3,7 +3,12 @@ name: OTA Audit browser runner
 on:
   schedule:
     - cron: '*/5 * * * *'
-    - cron: '15 6 * * *'
+
+    # Recherche + audit commercial quotidien.
+    # 06:17 UTC évite de tomber en même temps
+    # que le cron toutes les 5 minutes.
+    - cron: '17 6 * * *'
+
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +21,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -30,17 +35,20 @@ jobs:
         with:
           node-version: '22'
 
-      - working-directory: runner
+      - name: Installer Node
+        working-directory: runner
         run: npm install --ignore-scripts
 
-      - working-directory: runner
+      - name: Tester le runner
+        working-directory: runner
         run: npm test
 
-      - working-directory: runner
+      - name: Installer Chromium
+        working-directory: runner
         run: npx playwright install --with-deps chromium
 
       - name: Trouver de nouveaux hôtels
-        if: github.event.schedule == '15 6 * * *' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '17 6 * * *' || github.event_name == 'workflow_dispatch'
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
@@ -49,14 +57,23 @@ jobs:
           PROSPECT_MAX_PER_RUN: '100'
         run: node src/prospect-finder.js
 
-      - name: Exécuter les audits
+      - name: Auditer les prospects commerciaux
+        if: github.event.schedule == '17 6 * * *' || github.event_name == 'workflow_dispatch'
+        working-directory: runner
+        env:
+          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
+          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
+          PROSPECT_AUDIT_LIMIT: '10'
+        run: node src/prospect-auditor.js
+
+      - name: Exécuter les audits clients
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
         run: npm run audit
 
-      - name: Finaliser les audits et envoyer les emails
+      - name: Finaliser les audits et envoyer les emails clients
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
