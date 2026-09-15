@@ -2,64 +2,49 @@ import { chromium } from 'playwright';
 import { auditHotel } from './audit.js';
 
 function env(name, fallback = '') {
-  const value =
-    process.env[name];
-
-  return value == null || value === ''
-    ? fallback
-    : value;
+  const value = process.env[name];
+  return value == null || value === '' ? fallback : value;
 }
 
 function baseUrl() {
-  return env('OTA_BASE_URL')
-    .replace(/\/+$/, '');
+  return env('OTA_BASE_URL').replace(/\/+$/, '');
 }
 
 function token() {
   return env('OTA_RUNNER_TOKEN');
 }
 
-async function requestTestProspects() {
-  const response =
-    await fetch(
-      `${baseUrl()}/automation/prospects-reaudit-test.php`,
-      {
-        method: 'POST',
-
-        headers: {
-          authorization:
-            `Bearer ${token()}`,
-
-          'content-type':
-            'application/json'
-        }
+async function getTestProspects() {
+  const response = await fetch(
+    `${baseUrl()}/automation/prospects-reaudit-test.php`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token()}`,
+        'content-type': 'application/json',
+        'user-agent': 'OTA-Audit-France-Reaudit-Test/1.0'
       }
-    );
+    }
+  );
 
-  const text =
-    await response.text();
+  const text = await response.text();
 
   if (!response.ok) {
     throw new Error(
-      `HTTP ${response.status}: ${text}`
+      `HTTP ${response.status}: ${text.slice(0, 1000)}`
     );
   }
 
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Réponse JSON invalide: ${text.slice(0, 1000)}`
+    );
+  }
 }
 
-async function saveResult(
-  prospect,
-  audit
-) {
-  const failures =
-    Array.isArray(audit.checks)
-      ? audit.checks.filter(
-          check =>
-            check.status === 'fail'
-        )
-      : [];
-
+function priorityForCategory(category) {
   const priorities = {
     direct: 100,
     price: 95,
@@ -76,131 +61,24 @@ async function saveResult(
     content: 35
   };
 
-  failures.sort(
-    (a, b) =>
-      (priorities[b.category] || 0) -
-      (priorities[a.category] || 0)
-  );
-
-  const best =
-    failures[0] ||
-    null;
-
-  const response =
-    await fetch(
-      `${baseUrl()}/automation/prospects-api.php`,
-      {
-        method: 'POST',
-
-        headers: {
-          authorization:
-            `Bearer ${token()}`,
-
-          'content-type':
-            'application/json'
-        },
-
-        body:
-          JSON.stringify({
-            action:
-              'result',
-
-            id:
-              prospect.id,
-
-            audit_status:
-              best
-                ? 'audited'
-                : 'clean',
-
-            score:
-              audit.score || 0,
-
-            coverage:
-              audit.score_basis?.coverage || 0,
-
-            anomaly:
-              best?.label || '',
-
-            severity:
-              best
-                ? severityFor(best.category)
-                : '',
-
-            evidence:
-              best?.evidence || '',
-
-            recommendation:
-              best?.recommendation || '',
-
-            sources:
-              best?.sources || []
-          })
-      }
-    );
-
-  const text =
-    await response.text();
-
-  if (!response.ok) {
-    throw new Error(
-      `Save HTTP ${response.status}: ${text}`
-    );
-  }
-
-  console.log(
-    '[REAUDIT RESULT]',
-    `id=${prospect.id}`,
-    `hotel=${prospect.hotel_name}`,
-    `score=${audit.score}`,
-    `coverage=${audit.score_basis?.coverage || 0}`,
-    `anomaly=${JSON.stringify(best?.label || '')}`
-  );
-
-  const directChecks =
-    audit.checks.filter(
-      check =>
-        check.category === 'direct'
-    );
-
-  for (
-    const check
-    of directChecks
-  ) {
-    console.log(
-      '[REAUDIT DIRECT]',
-      `id=${prospect.id}`,
-      `hotel=${prospect.hotel_name}`,
-      `check=${JSON.stringify(check.label)}`,
-      `status=${check.status}`,
-      `evidence=${JSON.stringify(check.evidence)}`
-    );
-  }
+  return priorities[category] || 20;
 }
 
-function severityFor(category) {
-  if (
-    [
-      'direct',
-      'price',
-      'policies'
-    ].includes(category)
-  ) {
-    return 'critique';
-  }
+function bestFailure(audit) {
+  const failures = Array.isArray(audit?.checks)
+    ? audit.checks.filter(
+        check =>
+          check?.status === 'fail'
+      )
+    : [];
 
-  if (
-    [
-      'identity',
-      'consistency',
-      'channel',
-      'contact'
-    ].includes(category)
-  ) {
-    return 'important';
-  }
+  failures.sort(
+    (a, b) =>
+      priorityForCategory(b.category) -
+      priorityForCategory(a.category)
+  );
 
-  return 'opportunité';
+  return failures[0] || null;
 }
 
 async function main() {
@@ -217,11 +95,136 @@ async function main() {
   }
 
   const result =
-    await requestTestProspects();
+    await getTestProspects();
 
   const prospects =
-    result.prospects || [];
+    Array.isArray(result?.prospects)
+      ? result.prospects
+      : [];
 
   console.log(
     '[REAUDIT TEST]',
-    `prospects
+    `prospects = ${prospects.length}`
+  );
+
+  if (!prospects.length) {
+    console.log(
+      '[REAUDIT TEST] aucun prospect de test'
+    );
+
+    return;
+  }
+
+  const browser =
+    await chromium.launch({
+      headless: true
+    });
+
+  try {
+    for (
+      const prospect
+      of prospects
+    ) {
+      console.log(
+        '[REAUDIT START]',
+        `id=${prospect.id}`,
+        `hotel=${prospect.hotel_name}`,
+        `website=${prospect.website}`
+      );
+
+      try {
+        const audit =
+          await auditHotel(
+            browser,
+            {
+              hotel_name:
+                prospect.hotel_name,
+
+              city:
+                prospect.city,
+
+              website:
+                prospect.website,
+
+              type:
+                'free'
+            },
+            {
+              timeout:
+                30000
+            }
+          );
+
+        const best =
+          bestFailure(
+            audit
+          );
+
+        console.log(
+          '[REAUDIT RESULT]',
+          `id=${prospect.id}`,
+          `hotel=${prospect.hotel_name}`,
+          `score=${audit?.score ?? 0}`,
+          `coverage=${audit?.score_basis?.coverage ?? 0}`,
+          `anomaly=${JSON.stringify(best?.label || '')}`
+        );
+
+        const directChecks =
+          Array.isArray(
+            audit?.checks
+          )
+            ? audit.checks.filter(
+                check =>
+                  check?.category === 'direct'
+              )
+            : [];
+
+        for (
+          const check
+          of directChecks
+        ) {
+          console.log(
+            '[REAUDIT DIRECT]',
+            `id=${prospect.id}`,
+            `hotel=${prospect.hotel_name}`,
+            `check=${JSON.stringify(check.label)}`,
+            `status=${check.status}`,
+            `evidence=${JSON.stringify(check.evidence)}`
+          );
+        }
+
+      } catch (error) {
+        console.error(
+          '[REAUDIT ERROR]',
+          `id=${prospect.id}`,
+          `hotel=${prospect.hotel_name}`,
+          String(
+            error?.message ||
+            error
+          )
+            .replace(/\s+/g, ' ')
+            .slice(0, 500)
+        );
+      }
+    }
+
+  } finally {
+    await browser.close();
+  }
+
+  console.log(
+    '[REAUDIT TEST] terminé'
+  );
+}
+
+main().catch(
+  error => {
+    console.error(
+      '[REAUDIT FATAL]',
+      error?.stack ||
+      error
+    );
+
+    process.exitCode = 1;
+  }
+);
