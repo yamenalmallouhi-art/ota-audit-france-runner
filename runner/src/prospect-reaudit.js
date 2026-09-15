@@ -1,48 +1,20 @@
 import { chromium } from 'playwright';
 import { auditHotel } from './audit.js';
 
-function env(name, fallback = '') {
-  const value = process.env[name];
-  return value == null || value === '' ? fallback : value;
-}
-
-function baseUrl() {
-  return env('OTA_BASE_URL').replace(/\/+$/, '');
-}
-
-function token() {
-  return env('OTA_RUNNER_TOKEN');
-}
-
-async function getTestProspects() {
-  const response = await fetch(
-    `${baseUrl()}/automation/prospects-reaudit-test.php`,
-    {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token()}`,
-        'content-type': 'application/json',
-        'user-agent': 'OTA-Audit-France-Reaudit-Test/1.0'
-      }
-    }
-  );
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status}: ${text.slice(0, 1000)}`
-    );
+const PROSPECTS = [
+  {
+    id: 29,
+    hotel_name: 'Les Quatre Dauphins',
+    city: 'Aix-en-Provence',
+    website: 'https://www.lesquatredauphins.fr/'
+  },
+  {
+    id: 36,
+    hotel_name: 'Le Mas de Fauchon',
+    city: 'Saint-Cannat',
+    website: 'https://www.masdefauchon.fr/'
   }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Réponse JSON invalide: ${text.slice(0, 1000)}`
-    );
-  }
-}
+];
 
 function priorityForCategory(category) {
   const priorities = {
@@ -66,10 +38,7 @@ function priorityForCategory(category) {
 
 function bestFailure(audit) {
   const failures = Array.isArray(audit?.checks)
-    ? audit.checks.filter(
-        check =>
-          check?.status === 'fail'
-      )
+    ? audit.checks.filter(check => check?.status === 'fail')
     : [];
 
   failures.sort(
@@ -82,49 +51,17 @@ function bestFailure(audit) {
 }
 
 async function main() {
-  if (!baseUrl()) {
-    throw new Error(
-      'OTA_BASE_URL manquant'
-    );
-  }
-
-  if (!token()) {
-    throw new Error(
-      'OTA_RUNNER_TOKEN manquant'
-    );
-  }
-
-  const result =
-    await getTestProspects();
-
-  const prospects =
-    Array.isArray(result?.prospects)
-      ? result.prospects
-      : [];
-
   console.log(
     '[REAUDIT TEST]',
-    `prospects = ${prospects.length}`
+    `prospects = ${PROSPECTS.length}`
   );
 
-  if (!prospects.length) {
-    console.log(
-      '[REAUDIT TEST] aucun prospect de test'
-    );
-
-    return;
-  }
-
-  const browser =
-    await chromium.launch({
-      headless: true
-    });
+  const browser = await chromium.launch({
+    headless: true
+  });
 
   try {
-    for (
-      const prospect
-      of prospects
-    ) {
+    for (const prospect of PROSPECTS) {
       console.log(
         '[REAUDIT START]',
         `id=${prospect.id}`,
@@ -133,32 +70,20 @@ async function main() {
       );
 
       try {
-        const audit =
-          await auditHotel(
-            browser,
-            {
-              hotel_name:
-                prospect.hotel_name,
+        const audit = await auditHotel(
+          browser,
+          {
+            hotel_name: prospect.hotel_name,
+            city: prospect.city,
+            website: prospect.website,
+            type: 'free'
+          },
+          {
+            timeout: 30000
+          }
+        );
 
-              city:
-                prospect.city,
-
-              website:
-                prospect.website,
-
-              type:
-                'free'
-            },
-            {
-              timeout:
-                30000
-            }
-          );
-
-        const best =
-          bestFailure(
-            audit
-          );
+        const best = bestFailure(audit);
 
         console.log(
           '[REAUDIT RESULT]',
@@ -169,20 +94,13 @@ async function main() {
           `anomaly=${JSON.stringify(best?.label || '')}`
         );
 
-        const directChecks =
-          Array.isArray(
-            audit?.checks
-          )
-            ? audit.checks.filter(
-                check =>
-                  check?.category === 'direct'
-              )
-            : [];
+        const directChecks = Array.isArray(audit?.checks)
+          ? audit.checks.filter(
+              check => check?.category === 'direct'
+            )
+          : [];
 
-        for (
-          const check
-          of directChecks
-        ) {
+        for (const check of directChecks) {
           console.log(
             '[REAUDIT DIRECT]',
             `id=${prospect.id}`,
@@ -217,14 +135,12 @@ async function main() {
   );
 }
 
-main().catch(
-  error => {
-    console.error(
-      '[REAUDIT FATAL]',
-      error?.stack ||
-      error
-    );
+main().catch(error => {
+  console.error(
+    '[REAUDIT FATAL]',
+    error?.stack ||
+    error
+  );
 
-    process.exitCode = 1;
-  }
-);
+  process.exitCode = 1;
+});
