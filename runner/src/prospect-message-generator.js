@@ -29,7 +29,7 @@ async function api(payload) {
           'application/json',
 
         'user-agent':
-          'OTA-Audit-France-Message-Generator/1.0'
+          'OTA-Audit-France-Message-Generator/1.1'
       },
 
       body:
@@ -55,6 +55,189 @@ async function api(payload) {
     );
   }
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| FILTRE GRANDES CHAÎNES
+|--------------------------------------------------------------------------
+*/
+
+const CHAIN_NAME_PATTERNS = [
+  /\baccor\b/i,
+  /\bibis\b/i,
+  /\bibis budget\b/i,
+  /\bhotel\s*f1\b/i,
+  /\bmercure\b/i,
+  /\bnovotel\b/i,
+  /\badagio\b/i,
+  /\bmama shelter\b/i,
+
+  /\bradisson\b/i,
+
+  /\bmarriott\b/i,
+  /\bcourtyard\b/i,
+  /\bsheraton\b/i,
+  /\bwestin\b/i,
+  /\brenaissance\b/i,
+  /\bmoxy\b/i,
+
+  /\bhilton\b/i,
+  /\bhampton\b/i,
+  /\bdoubletree\b/i,
+  /\bwaldorf astoria\b/i,
+
+  /\bbest western\b/i,
+
+  /\bcampanile\b/i,
+  /\bkyriad\b/i,
+  /\bpremi[eè]re classe\b/i,
+  /\bgolden tulip\b/i,
+
+  /\bb&b hotels?\b/i,
+  /\bb\s*&\s*b hotels?\b/i,
+
+  /\bholiday inn\b/i,
+  /\bcrowne plaza\b/i,
+  /\bintercontinental\b/i,
+  /\bhotel indigo\b/i,
+
+  /\bhyatt\b/i,
+
+  /\bmeli[aá]\b/i,
+
+  /\bnh hotels?\b/i,
+  /\bnh collection\b/i
+];
+
+const CHAIN_DOMAINS = [
+  'accor.com',
+  'all.accor.com',
+  'ibis.accor.com',
+  'novotel.accor.com',
+  'mercure.accor.com',
+
+  'radissonhotels.com',
+  'radissonblu.com',
+
+  'marriott.com',
+
+  'hilton.com',
+
+  'bestwestern.com',
+  'bestwestern.fr',
+
+  'campanile.com',
+  'kyriad.com',
+  'premiereclasse.com',
+  'goldentulip.com',
+
+  'hotel-bb.com',
+  'hotelbb.com',
+
+  'ihg.com',
+
+  'hyatt.com',
+
+  'melia.com',
+
+  'nh-hotels.com',
+
+  'aparthotels-adagio.com',
+
+  'mamashelter.com'
+];
+
+function normalizeDomain(value) {
+  try {
+    const url =
+      /^https?:\/\//i.test(value)
+        ? new URL(value)
+        : new URL(`https://${value}`);
+
+    return url.hostname
+      .toLowerCase()
+      .replace(/^www\./, '');
+
+  } catch {
+    return '';
+  }
+}
+
+function domainMatchesChain(domain) {
+  if (!domain) {
+    return false;
+  }
+
+  return CHAIN_DOMAINS.some(
+    chainDomain =>
+      domain === chainDomain ||
+      domain.endsWith(
+        `.${chainDomain}`
+      )
+  );
+}
+
+function detectChain(prospect) {
+  const hotelName =
+    String(
+      prospect.hotel_name ||
+      ''
+    ).trim();
+
+  const website =
+    String(
+      prospect.website ||
+      ''
+    ).trim();
+
+  const websiteDomain =
+    normalizeDomain(
+      prospect.website_domain ||
+      website
+    );
+
+  for (
+    const pattern
+    of CHAIN_NAME_PATTERNS
+  ) {
+    if (
+      pattern.test(
+        hotelName
+      )
+    ) {
+      return {
+        isChain: true,
+        reason:
+          `Nom correspondant à une chaîne connue : ${hotelName}`
+      };
+    }
+  }
+
+  if (
+    domainMatchesChain(
+      websiteDomain
+    )
+  ) {
+    return {
+      isChain: true,
+      reason:
+        `Domaine corporate détecté : ${websiteDomain}`
+    };
+  }
+
+  return {
+    isChain: false,
+    reason: ''
+  };
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| ANOMALIE EN FRANÇAIS NATUREL
+|--------------------------------------------------------------------------
+*/
 
 function humanizeAnomaly(prospect) {
   const title =
@@ -101,12 +284,8 @@ function humanizeAnomaly(prospect) {
   }
 
   if (
-    normalized.includes(
-      'annulation'
-    ) ||
-    normalized.includes(
-      'prepaiement'
-    )
+    normalized.includes('annulation') ||
+    normalized.includes('prepaiement')
   ) {
     return (
       'les conditions d’annulation ou de prépaiement ne semblent ' +
@@ -126,12 +305,8 @@ function humanizeAnomaly(prospect) {
   }
 
   if (
-    normalized.includes(
-      'prix'
-    ) ||
-    normalized.includes(
-      'tarif'
-    )
+    normalized.includes('prix') ||
+    normalized.includes('tarif')
   ) {
     return (
       'l’accès aux tarifs ou aux disponibilités ne semble pas ' +
@@ -140,12 +315,8 @@ function humanizeAnomaly(prospect) {
   }
 
   if (
-    normalized.includes(
-      'coordonnees'
-    ) ||
-    normalized.includes(
-      'contact'
-    )
+    normalized.includes('coordonnees') ||
+    normalized.includes('contact')
   ) {
     return (
       'les coordonnées de contact ne semblent pas immédiatement ' +
@@ -154,9 +325,7 @@ function humanizeAnomaly(prospect) {
   }
 
   if (
-    normalized.includes(
-      'parking'
-    )
+    normalized.includes('parking')
   ) {
     return (
       'les informations concernant le parking ne semblent pas ' +
@@ -165,12 +334,8 @@ function humanizeAnomaly(prospect) {
   }
 
   if (
-    normalized.includes(
-      'restaurant'
-    ) ||
-    normalized.includes(
-      'petit-dejeuner'
-    )
+    normalized.includes('restaurant') ||
+    normalized.includes('petit-dejeuner')
   ) {
     return (
       'les informations sur la restauration ou le petit-déjeuner ' +
@@ -182,15 +347,17 @@ function humanizeAnomaly(prospect) {
     evidence &&
     evidence.length < 180
   ) {
-    return (
+    const clean =
       evidence
         .replace(/\.$/, '')
-        .charAt(0)
-        .toLowerCase() +
-      evidence
-        .replace(/\.$/, '')
-        .slice(1)
-    );
+        .trim();
+
+    if (clean) {
+      return (
+        clean.charAt(0).toLowerCase() +
+        clean.slice(1)
+      );
+    }
   }
 
   if (title) {
@@ -204,6 +371,13 @@ function humanizeAnomaly(prospect) {
     'sur le parcours de réservation'
   );
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| MESSAGE
+|--------------------------------------------------------------------------
+*/
 
 function buildSubject(prospect) {
   const hotel =
@@ -232,13 +406,12 @@ function buildMessage(prospect) {
   return [
     'Bonjour,',
     '',
-    'Je me permets de vous écrire parce que j’ai regardé rapidement la présence en ligne de votre hôtel.',
+    'En regardant la présence en ligne de votre hôtel, un point a attiré notre attention : ' +
+      `${anomaly}.`,
     '',
-    `J’ai remarqué un point qui pourrait vous faire perdre quelques réservations directes : ${anomaly}.`,
+    `Votre OTA Score ressort actuellement à ${score}/100.`,
     '',
-    `J’ai aussi calculé votre OTA Score : ${score}/100.`,
-    '',
-    'Si vous voulez, je peux vous envoyer gratuitement les 3 principaux points que j’ai relevés. Ça tient sur une page et il n’y a rien à installer.',
+    'Si vous le souhaitez, je peux vous envoyer gratuitement les 3 principaux points relevés sur votre établissement. Ça tient sur une page et il n’y a rien à installer.',
     '',
     'Bien à vous,',
     'OTA Audit France',
@@ -248,11 +421,18 @@ function buildMessage(prospect) {
   ].join('\n');
 }
 
-async function claimProspects(limit) {
+
+/*
+|--------------------------------------------------------------------------
+| API
+|--------------------------------------------------------------------------
+*/
+
+async function getCandidates(limit) {
   const result =
     await api({
       action:
-        'message_claim',
+        'message_candidates',
 
       limit
     });
@@ -262,6 +442,28 @@ async function claimProspects(limit) {
   )
     ? result.prospects
     : [];
+}
+
+async function excludeChain(
+  prospect,
+  reason
+) {
+  await api({
+    action:
+      'message_exclude',
+
+    id:
+      prospect.id,
+
+    reason
+  });
+
+  console.log(
+    '[MESSAGE EXCLUDED]',
+    `id=${prospect.id}`,
+    `hotel=${prospect.hotel_name}`,
+    `reason=${reason}`
+  );
 }
 
 async function saveMessage(
@@ -282,6 +484,13 @@ async function saveMessage(
   });
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| MAIN
+|--------------------------------------------------------------------------
+*/
+
 async function main() {
   if (!baseUrl()) {
     throw new Error(
@@ -295,7 +504,12 @@ async function main() {
     );
   }
 
-  const limit =
+  /*
+   * Nous voulons seulement 2 messages,
+   * mais nous examinons jusqu’à 20 candidats
+   * pour pouvoir sauter les chaînes.
+   */
+  const messageLimit =
     Math.max(
       1,
       Math.min(
@@ -309,20 +523,46 @@ async function main() {
       )
     );
 
-  const prospects =
-    await claimProspects(
-      limit
+  const candidates =
+    await getCandidates(
+      20
     );
 
   console.log(
     '[MESSAGE GENERATOR]',
-    `prospects réclamés = ${prospects.length}`
+    `candidats examinés = ${candidates.length}`,
+    `objectif = ${messageLimit}`
   );
+
+  let generated = 0;
 
   for (
     const prospect
-    of prospects
+    of candidates
   ) {
+    if (
+      generated >=
+      messageLimit
+    ) {
+      break;
+    }
+
+    const chain =
+      detectChain(
+        prospect
+      );
+
+    if (
+      chain.isChain
+    ) {
+      await excludeChain(
+        prospect,
+        chain.reason
+      );
+
+      continue;
+    }
+
     const subject =
       buildSubject(
         prospect
@@ -339,10 +579,9 @@ async function main() {
       body
     );
 
-    console.log(
-      ''
-    );
+    generated++;
 
+    console.log('');
     console.log(
       '========================================'
     );
@@ -354,32 +593,32 @@ async function main() {
       `email=${prospect.email}`
     );
 
-    console.log(
-      'OBJET:'
-    );
+    console.log('OBJET:');
+    console.log(subject);
 
-    console.log(
-      subject
-    );
-
-    console.log(
-      ''
-    );
-
-    console.log(
-      'MESSAGE:'
-    );
-
-    console.log(
-      body
-    );
+    console.log('');
+    console.log('MESSAGE:');
+    console.log(body);
 
     console.log(
       '========================================'
     );
 
+    console.log('');
+  }
+
+  console.log(
+    '[MESSAGE GENERATOR]',
+    `messages générés = ${generated}`
+  );
+
+  if (
+    generated <
+    messageLimit
+  ) {
     console.log(
-      ''
+      '[MESSAGE GENERATOR]',
+      'Pas assez de prospects indépendants éligibles pour atteindre la limite.'
     );
   }
 
