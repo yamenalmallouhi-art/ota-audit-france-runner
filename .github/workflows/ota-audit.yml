@@ -97,7 +97,8 @@ jobs:
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
         run: npm run audit
 
-      - name: Finaliser les audits et envoyer les emails clients
+      - name: Envoyer les 2 premiers emails commerciaux
+        if: github.event_name == 'workflow_dispatch'
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
@@ -105,4 +106,4 @@ jobs:
           curl --fail --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $OTA_RUNNER_TOKEN" \
-            "$OTA_BASE_URL/automation/worker-trigger.php"
+            "$OTA_BASE_URL/automation/send-2-prospect-emails.php"
