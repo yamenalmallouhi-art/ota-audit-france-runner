@@ -68,7 +68,7 @@ jobs:
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-        run: node src/prospect-reaudit-test.js
+        run: node src/prospect-reaudit.js
 
       - name: Exécuter les audits clients
         working-directory: runner
