@@ -29,7 +29,7 @@ async function api(payload) {
           'application/json',
 
         'user-agent':
-          'OTA-Audit-France-Message-Generator/1.1'
+          'OTA-Audit-France-Message-Generator/2.0'
       },
 
       body:
@@ -59,7 +59,7 @@ async function api(payload) {
 
 /*
 |--------------------------------------------------------------------------
-| FILTRE GRANDES CHAÎNES
+| GRANDES CHAÎNES À EXCLURE
 |--------------------------------------------------------------------------
 */
 
@@ -67,13 +67,19 @@ const CHAIN_NAME_PATTERNS = [
   /\baccor\b/i,
   /\bibis\b/i,
   /\bibis budget\b/i,
+  /\bibis styles\b/i,
   /\bhotel\s*f1\b/i,
+  /\bhôtel\s*f1\b/i,
   /\bmercure\b/i,
   /\bnovotel\b/i,
+  /\bpullman\b/i,
+  /\bsofitel\b/i,
+  /\bmgallery\b/i,
   /\badagio\b/i,
   /\bmama shelter\b/i,
 
   /\bradisson\b/i,
+  /\bpark inn\b/i,
 
   /\bmarriott\b/i,
   /\bcourtyard\b/i,
@@ -113,9 +119,6 @@ const CHAIN_NAME_PATTERNS = [
 const CHAIN_DOMAINS = [
   'accor.com',
   'all.accor.com',
-  'ibis.accor.com',
-  'novotel.accor.com',
-  'mercure.accor.com',
 
   'radissonhotels.com',
   'radissonblu.com',
@@ -172,9 +175,7 @@ function domainMatchesChain(domain) {
   return CHAIN_DOMAINS.some(
     chainDomain =>
       domain === chainDomain ||
-      domain.endsWith(
-        `.${chainDomain}`
-      )
+      domain.endsWith(`.${chainDomain}`)
   );
 }
 
@@ -185,27 +186,18 @@ function detectChain(prospect) {
       ''
     ).trim();
 
-  const website =
-    String(
-      prospect.website ||
-      ''
-    ).trim();
-
   const websiteDomain =
     normalizeDomain(
       prospect.website_domain ||
-      website
+      prospect.website ||
+      ''
     );
 
   for (
     const pattern
     of CHAIN_NAME_PATTERNS
   ) {
-    if (
-      pattern.test(
-        hotelName
-      )
-    ) {
+    if (pattern.test(hotelName)) {
       return {
         isChain: true,
         reason:
@@ -235,7 +227,7 @@ function detectChain(prospect) {
 
 /*
 |--------------------------------------------------------------------------
-| ANOMALIE EN FRANÇAIS NATUREL
+| ANOMALIES → PHRASES NATURELLES
 |--------------------------------------------------------------------------
 */
 
@@ -274,7 +266,7 @@ function humanizeAnomaly(prospect) {
       'horaires arrivee'
     ) ||
     normalized.includes(
-      'horaires arrivee/depart'
+      'arrivee/depart'
     )
   ) {
     return (
@@ -306,7 +298,8 @@ function humanizeAnomaly(prospect) {
 
   if (
     normalized.includes('prix') ||
-    normalized.includes('tarif')
+    normalized.includes('tarif') ||
+    normalized.includes('disponibilite')
   ) {
     return (
       'l’accès aux tarifs ou aux disponibilités ne semble pas ' +
@@ -344,6 +337,24 @@ function humanizeAnomaly(prospect) {
   }
 
   if (
+    normalized.includes('chambre')
+  ) {
+    return (
+      'la présentation des catégories de chambres pourrait être ' +
+      'plus claire pour un visiteur'
+    );
+  }
+
+  if (
+    normalized.includes('equipement')
+  ) {
+    return (
+      'les principaux équipements de l’hôtel ne semblent pas ' +
+      'tous clairement présentés'
+    );
+  }
+
+  if (
     evidence &&
     evidence.length < 180
   ) {
@@ -368,7 +379,7 @@ function humanizeAnomaly(prospect) {
 
   return (
     'j’ai relevé un point qui mérite d’être vérifié ' +
-    'sur le parcours de réservation'
+    'sur votre présence en ligne'
   );
 }
 
@@ -504,28 +515,27 @@ async function main() {
     );
   }
 
-  /*
-   * Nous voulons seulement 2 messages,
-   * mais nous examinons jusqu’à 20 candidats
-   * pour pouvoir sauter les chaînes.
-   */
   const messageLimit =
     Math.max(
       1,
       Math.min(
-        2,
+        10,
         Number(
           env(
             'PROSPECT_MESSAGE_LIMIT',
-            '2'
+            '10'
           )
         )
       )
     );
 
+  /*
+   * On prend plus de candidats que nécessaire,
+   * car certains seront exclus comme chaînes.
+   */
   const candidates =
     await getCandidates(
-      20
+      50
     );
 
   console.log(
@@ -581,46 +591,20 @@ async function main() {
 
     generated++;
 
-    console.log('');
-    console.log(
-      '========================================'
-    );
-
     console.log(
       '[MESSAGE READY]',
       `id=${prospect.id}`,
       `hotel=${prospect.hotel_name}`,
-      `email=${prospect.email}`
+      `email=${prospect.email}`,
+      `score=${prospect.audit_score}`,
+      `anomaly=${JSON.stringify(prospect.audit_anomaly)}`
     );
-
-    console.log('OBJET:');
-    console.log(subject);
-
-    console.log('');
-    console.log('MESSAGE:');
-    console.log(body);
-
-    console.log(
-      '========================================'
-    );
-
-    console.log('');
   }
 
   console.log(
     '[MESSAGE GENERATOR]',
     `messages générés = ${generated}`
   );
-
-  if (
-    generated <
-    messageLimit
-  ) {
-    console.log(
-      '[MESSAGE GENERATOR]',
-      'Pas assez de prospects indépendants éligibles pour atteindre la limite.'
-    );
-  }
 
   console.log(
     '[MESSAGE GENERATOR] terminé'
