@@ -65,6 +65,9 @@ jobs:
       - name: Réauditer 2 hôtels de test
         if: github.event_name == 'workflow_dispatch'
         working-directory: runner
+        env:
+          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
+          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
         run: node src/prospect-reaudit.js
 
       - name: Réinitialiser les 2 messages de test
