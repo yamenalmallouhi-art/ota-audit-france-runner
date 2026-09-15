@@ -3,6 +3,7 @@ name: OTA Audit browser runner
 on:
   schedule:
     - cron: '*/5 * * * *'
+    - cron: '15 6 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +16,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -38,11 +39,23 @@ jobs:
       - working-directory: runner
         run: npx playwright install --with-deps chromium
 
-      - working-directory: runner
+      - name: Trouver de nouveaux hôtels
+        if: github.event.schedule == '15 6 * * *' || github.event_name == 'workflow_dispatch'
+        working-directory: runner
+        env:
+          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
+          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
+          PROSPECT_TARGETS_PER_RUN: '1'
+          PROSPECT_MAX_PER_RUN: '100'
+        run: node src/prospect-finder.js
+
+      - name: Exécuter les audits
+        working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
         run: npm run audit
+
       - name: Finaliser les audits et envoyer les emails
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
