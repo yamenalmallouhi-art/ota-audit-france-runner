@@ -1,73 +1,168 @@
 const CHANNELS = {
-  booking: { queries: h => [
-    `site:booking.com/hotel "${h.hotel_name}" "${h.city}"`,
-    `"${h.hotel_name}" "${h.city}" Booking.com`
-  ]},
-  expedia: { queries: h => [
-    `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
-    `site:expedia.com "${h.hotel_name}" "${h.city}"`,
-    `site:hotels.com "${h.hotel_name}" "${h.city}"`,
-    `"${h.hotel_name}" "${h.city}" Expedia`
-  ]},
-  google: { queries: h => [
-    `site:google.com/travel/hotels "${h.hotel_name}" "${h.city}"`,
-    `site:google.fr/travel/hotels "${h.hotel_name}" "${h.city}"`,
-    `site:google.com/maps "${h.hotel_name}" "${h.city}"`,
-    `"${h.hotel_name}" "${h.city}" "Google Hotels"`
-  ]},
-  tripadvisor: { queries: h => [
-    `site:tripadvisor.fr/Hotel_Review "${h.hotel_name}" "${h.city}"`,
-    `site:tripadvisor.com/Hotel_Review "${h.hotel_name}" "${h.city}"`,
-    `"${h.hotel_name}" "${h.city}" TripAdvisor`
-  ]}
+  booking: {
+    queries: h => [
+      `site:booking.com/hotel "${h.hotel_name}" "${h.city}"`,
+      `"${h.hotel_name}" "${h.city}" Booking.com`
+    ]
+  },
+
+  expedia: {
+    queries: h => [
+      `site:expedia.fr "${h.hotel_name}" "${h.city}"`,
+      `site:expedia.com "${h.hotel_name}" "${h.city}"`,
+      `site:hotels.com "${h.hotel_name}" "${h.city}"`,
+      `"${h.hotel_name}" "${h.city}" Expedia`
+    ]
+  },
+
+  google: {
+    queries: h => [
+      `site:google.com/travel/hotels "${h.hotel_name}" "${h.city}"`,
+      `site:google.fr/travel/hotels "${h.hotel_name}" "${h.city}"`,
+      `site:google.com/maps "${h.hotel_name}" "${h.city}"`,
+      `"${h.hotel_name}" "${h.city}" "Google Hotels"`
+    ]
+  },
+
+  tripadvisor: {
+    queries: h => [
+      `site:tripadvisor.fr/Hotel_Review "${h.hotel_name}" "${h.city}"`,
+      `site:tripadvisor.com/Hotel_Review "${h.hotel_name}" "${h.city}"`,
+      `"${h.hotel_name}" "${h.city}" TripAdvisor`
+    ]
+  }
 };
 
 const IGNORED_NAME_WORDS = new Set([
-  'hotel','hotellerie','hostellerie','restaurant','spa',
-  'le','la','les','de','du','des','et','the','and'
+  'hotel',
+  'hotellerie',
+  'hostellerie',
+  'restaurant',
+  'spa',
+  'le',
+  'la',
+  'les',
+  'de',
+  'du',
+  'des',
+  'et',
+  'the',
+  'and'
 ]);
 
-export async function auditHotel(browser, hotel, options = {}) {
-  const timeout = options.timeout ?? 30000;
+const BOOKING_WORDS =
+  /réserv|reserv|book(?:ing)?|disponibil|availability|check.?availability|voir les tarifs|voir les disponibilités|voir les disponibilites|tarifs et disponibilités|tarifs et disponibilites/i;
+
+const OTA_DOMAINS = [
+  'booking.com',
+  'expedia.com',
+  'expedia.fr',
+  'hotels.com',
+  'tripadvisor.com',
+  'tripadvisor.fr',
+  'agoda.com',
+  'hotel.com',
+  'kayak.com'
+];
+
+export async function auditHotel(
+  browser,
+  hotel,
+  options = {}
+) {
+  const timeout =
+    options.timeout ??
+    30000;
+
   const pages = [];
   const limitations = [];
 
-  pages.push(await visit(browser, hotel.website, 'official', timeout));
+  pages.push(
+    await visit(
+      browser,
+      hotel.website,
+      'official',
+      timeout
+    )
+  );
 
-  for (const channel of ['booking','expedia','google','tripadvisor']) {
+  for (
+    const channel
+    of [
+      'booking',
+      'expedia',
+      'google',
+      'tripadvisor'
+    ]
+  ) {
     try {
-      const result = await discoverChannel(browser, hotel, channel, timeout);
+      const result =
+        await discoverChannel(
+          browser,
+          hotel,
+          channel,
+          timeout
+        );
 
       console.log(
-        '[OTA DEBUG]', channel,
-        'selected =', result.url || 'NONE',
-        'candidates =', result.candidates || []
+        '[OTA DEBUG]',
+        channel,
+        'selected =',
+        result.url || 'NONE',
+        'candidates =',
+        result.candidates || []
       );
 
       if (!result.url) {
-        pages.push(unavailable(channel, 'Aucune page publique fiable trouvée'));
+        pages.push(
+          unavailable(
+            channel,
+            'Aucune page publique fiable trouvée'
+          )
+        );
+
         continue;
       }
 
-      const page = await visit(browser, result.url, channel, timeout);
+      const page =
+        await visit(
+          browser,
+          result.url,
+          channel,
+          timeout
+        );
 
-      if (channel === 'google' && result.evidence_text) {
-        page.discovery_text = result.evidence_text;
+      if (
+        channel === 'google' &&
+        result.evidence_text
+      ) {
+        page.discovery_text =
+          result.evidence_text;
       }
 
       if (page.ok) {
-        const confidence = hotelMatchConfidence(page, hotel);
+        const confidence =
+          hotelMatchConfidence(
+            page,
+            hotel
+          );
 
-        if (confidence === 'low') {
-          pages.push(unavailable(
-            channel,
-            'Page trouvée, mais correspondance avec l’établissement insuffisamment fiable.',
-            result.url
-          ));
+        if (
+          confidence === 'low'
+        ) {
+          pages.push(
+            unavailable(
+              channel,
+              'Page trouvée, mais correspondance avec l’établissement insuffisamment fiable.',
+              result.url
+            )
+          );
+
           continue;
         }
 
-        page.match_confidence = confidence;
+        page.match_confidence =
+          confidence;
       }
 
       pages.push(page);
@@ -91,38 +186,55 @@ export async function auditHotel(browser, hotel, options = {}) {
     hotel
   );
 
-  const checks = buildChecks(
-    pages,
-    hotel
-  );
+  const checks =
+    buildChecks(
+      pages,
+      hotel
+    );
 
-  const available = checks.filter(
-    check => check.status !== 'unknown'
-  );
+  const available =
+    checks.filter(
+      check =>
+        check.status !==
+        'unknown'
+    );
 
-  const passed = available.filter(
-    check => check.status === 'pass'
-  );
+  const passed =
+    available.filter(
+      check =>
+        check.status ===
+        'pass'
+    );
 
-  const failures = checks.filter(
-    check => check.status === 'fail'
-  );
+  const failures =
+    checks.filter(
+      check =>
+        check.status ===
+        'fail'
+    );
 
-  const unknownChecks = checks.filter(
-    check => check.status === 'unknown'
-  );
+  const unknownChecks =
+    checks.filter(
+      check =>
+        check.status ===
+        'unknown'
+    );
 
-  const availableWeight = available.reduce(
-    (total, check) =>
-      total + scoreWeight(check),
-    0
-  );
+  const availableWeight =
+    available.reduce(
+      (total, check) =>
+        total +
+        scoreWeight(check),
+      0
+    );
 
-  const passedWeight = passed.reduce(
-    (total, check) =>
-      total + scoreWeight(check),
-    0
-  );
+  const passedWeight =
+    passed.reduce(
+      (total, check) =>
+        total +
+        scoreWeight(check),
+      0
+    );
 
   const score =
     availableWeight > 0
@@ -142,24 +254,41 @@ export async function auditHotel(browser, hotel, options = {}) {
         )
       : 0;
 
-  let findings = failures.map(
-    check => ({
-      severity: severityFor(check),
-      title: check.label,
-      evidence: check.evidence,
-      impact: impactFor(check),
-      recommendation: check.recommendation,
-      sources: check.sources
-    })
-  );
+  let findings =
+    failures.map(
+      check => ({
+        severity:
+          severityFor(check),
 
-  if (hotel.type === 'free') {
-    if (findings.length < 3) {
+        title:
+          check.label,
+
+        evidence:
+          check.evidence,
+
+        impact:
+          impactFor(check),
+
+        recommendation:
+          check.recommendation,
+
+        sources:
+          check.sources
+      })
+    );
+
+  if (
+    hotel.type === 'free'
+  ) {
+    if (
+      findings.length < 3
+    ) {
       findings.push(
         ...checks
           .filter(
             check =>
-              check.status === 'pass'
+              check.status ===
+              'pass'
           )
           .slice(
             0,
@@ -167,41 +296,66 @@ export async function auditHotel(browser, hotel, options = {}) {
           )
           .map(
             check => ({
-              severity: 'ok',
-              title: check.label,
-              evidence: check.evidence,
+              severity:
+                'ok',
+
+              title:
+                check.label,
+
+              evidence:
+                check.evidence,
+
               impact:
                 'Point conforme sur la source publique analysée.',
+
               recommendation:
                 'Maintenir cette information à jour.',
-              sources: check.sources
+
+              sources:
+                check.sources
             })
           )
       );
     }
 
-    findings = findings.slice(0, 3);
+    findings =
+      findings.slice(
+        0,
+        3
+      );
   }
 
-  if (hotel.type === 'paid') {
+  if (
+    hotel.type === 'paid'
+  ) {
     findings.push(
       ...unknownChecks
         .filter(
           check =>
-            check.category === 'channel'
+            check.category ===
+            'channel'
         )
-        .slice(0, 4)
+        .slice(
+          0,
+          4
+        )
         .map(
           check => ({
-            severity: 'opportunité',
+            severity:
+              'opportunité',
+
             title:
               `${check.label} - non vérifié`,
+
             evidence:
               check.evidence,
+
             impact:
               'Ce canal n’a pas pu être contrôlé automatiquement avec un niveau de fiabilité suffisant.',
+
             recommendation:
               'Vérifier manuellement ce canal s’il représente une part importante de la distribution de l’établissement.',
+
             sources:
               check.sources
           })
@@ -234,7 +388,10 @@ export async function auditHotel(browser, hotel, options = {}) {
 
   const h48 =
     commercialFailures
-      .slice(0, 3)
+      .slice(
+        0,
+        3
+      )
       .map(
         item =>
           item.recommendation
@@ -242,7 +399,10 @@ export async function auditHotel(browser, hotel, options = {}) {
 
   const d7 =
     commercialFailures
-      .slice(3, 6)
+      .slice(
+        3,
+        6
+      )
       .map(
         item =>
           item.recommendation
@@ -389,7 +549,9 @@ async function discoverChannel(
   if (!candidates.length) {
     for (
       const query
-      of CHANNELS[channel].queries(hotel)
+      of CHANNELS[channel].queries(
+        hotel
+      )
     ) {
       try {
         const found =
@@ -416,7 +578,9 @@ async function discoverChannel(
           ...found
         );
 
-        if (candidates.length) {
+        if (
+          candidates.length
+        ) {
           break;
         }
 
@@ -484,7 +648,10 @@ async function discoverChannel(
 
     candidates:
       unique
-        .slice(0, 5)
+        .slice(
+          0,
+          5
+        )
         .map(
           item =>
             item.url
@@ -570,7 +737,10 @@ async function directPlatformSearch(
       await page
         .locator('body')
         .innerText()
-        .catch(() => '');
+        .catch(
+          () =>
+            ''
+        );
 
     console.log(
       '[OTA PAGE]',
@@ -580,14 +750,24 @@ async function directPlatformSearch(
       'title =',
       await page.title(),
       'links =',
-      await page.locator('a').count(),
+      await page
+        .locator('a')
+        .count(),
       'text =',
       bodyText
-        .replace(/\s+/g, ' ')
-        .slice(0, 500)
+        .replace(
+          /\s+/g,
+          ' '
+        )
+        .slice(
+          0,
+          500
+        )
     );
 
-    if (channel === 'google') {
+    if (
+      channel === 'google'
+    ) {
       const currentUrl =
         page.url();
 
@@ -880,7 +1060,7 @@ async function searchWeb(
         }
 
       } catch {
-        // Essayer le moteur suivant.
+        // moteur suivant
       }
     }
 
@@ -900,7 +1080,8 @@ function enrichIndirectChannelEvidence(
   const googlePage =
     pages.find(
       page =>
-        page.channel === 'google' &&
+        page.channel ===
+          'google' &&
         page.ok
     );
 
@@ -918,7 +1099,8 @@ function enrichIndirectChannelEvidence(
     const targetPage =
       pages.find(
         page =>
-          page.channel === channel
+          page.channel ===
+          channel
       );
 
     if (
@@ -1228,10 +1410,16 @@ function dedupeCandidates(
 
   for (
     const item
-    of items || []
+    of items ||
+    []
   ) {
+    if (!item) {
+      continue;
+    }
+
     const raw =
-      typeof item === 'string'
+      typeof item ===
+      'string'
         ? {
             url:
               item,
@@ -1291,9 +1479,7 @@ function unwrapSearchUrl(
 ) {
   try {
     const parsed =
-      new URL(
-        url
-      );
+      new URL(url);
 
     const uddg =
       parsed.searchParams.get(
@@ -1348,9 +1534,7 @@ function decodeBingUrl(
 ) {
   try {
     let encoded =
-      String(
-        value
-      );
+      String(value);
 
     if (
       encoded.startsWith(
@@ -1408,9 +1592,7 @@ function matchesChannelUrl(
 ) {
   try {
     const parsed =
-      new URL(
-        url
-      );
+      new URL(url);
 
     const host =
       parsed.hostname
@@ -1425,10 +1607,12 @@ function matchesChannelUrl(
         .toLowerCase();
 
     if (
-      channel === 'booking'
+      channel ===
+      'booking'
     ) {
       return (
-        host === 'booking.com' ||
+        host ===
+          'booking.com' ||
         host.endsWith(
           '.booking.com'
         )
@@ -1436,7 +1620,8 @@ function matchesChannelUrl(
     }
 
     if (
-      channel === 'expedia'
+      channel ===
+      'expedia'
     ) {
       return (
         host.startsWith(
@@ -1449,7 +1634,8 @@ function matchesChannelUrl(
     }
 
     if (
-      channel === 'tripadvisor'
+      channel ===
+      'tripadvisor'
     ) {
       return (
         host.startsWith(
@@ -1462,7 +1648,8 @@ function matchesChannelUrl(
     }
 
     if (
-      channel === 'google'
+      channel ===
+      'google'
     ) {
       const googleHost =
         host.startsWith(
@@ -1497,9 +1684,7 @@ function cleanCandidateUrl(
 ) {
   try {
     const parsed =
-      new URL(
-        url
-      );
+      new URL(url);
 
     for (
       const key
@@ -1539,7 +1724,8 @@ function candidateScore(
   let score = 0;
 
   if (
-    channel === 'booking'
+    channel ===
+    'booking'
   ) {
     if (
       /booking\.com/i.test(
@@ -1559,7 +1745,8 @@ function candidateScore(
   }
 
   if (
-    channel === 'expedia'
+    channel ===
+    'expedia'
   ) {
     if (
       /expedia\./i.test(
@@ -1579,7 +1766,8 @@ function candidateScore(
   }
 
   if (
-    channel === 'tripadvisor'
+    channel ===
+    'tripadvisor'
   ) {
     if (
       /tripadvisor\./i.test(
@@ -1599,7 +1787,8 @@ function candidateScore(
   }
 
   if (
-    channel === 'google'
+    channel ===
+    'google'
   ) {
     if (
       /google\./i.test(
@@ -1653,15 +1842,20 @@ async function visit(
       3
     );
 
+    /*
+     * Un peu plus de temps pour les widgets JS,
+     * moteurs de réservation et boutons dynamiques.
+     */
     await page.waitForTimeout(
-      1500
+      2500
     );
 
     const finalUrl =
       page.url();
 
     if (
-      channel !== 'official' &&
+      channel !==
+        'official' &&
       !matchesChannelUrl(
         finalUrl,
         channel
@@ -1677,17 +1871,24 @@ async function visit(
     const data =
       await page.evaluate(
         () => {
+          const clean =
+            value =>
+              String(
+                value ||
+                ''
+              )
+                .replace(
+                  /\s+/g,
+                  ' '
+                )
+                .trim();
+
           const text =
-            (
+            clean(
               document.body
                 ?.innerText ||
               ''
-            )
-              .replace(
-                /\s+/g,
-                ' '
-              )
-              .trim();
+            );
 
           const jsonld = [
             ...document.querySelectorAll(
@@ -1707,23 +1908,205 @@ async function visit(
             .map(
               link => ({
                 text:
-                  (
+                  clean(
                     link.innerText ||
-                    ''
-                  )
-                    .replace(
-                      /\s+/g,
-                      ' '
-                    )
-                    .trim(),
+                    link.textContent
+                  ),
 
                 href:
-                  link.href
+                  link.href ||
+                  '',
+
+                ariaLabel:
+                  clean(
+                    link.getAttribute(
+                      'aria-label'
+                    )
+                  ),
+
+                title:
+                  clean(
+                    link.getAttribute(
+                      'title'
+                    )
+                  ),
+
+                id:
+                  clean(
+                    link.id
+                  ),
+
+                className:
+                  clean(
+                    link.className
+                  ),
+
+                onclick:
+                  clean(
+                    link.getAttribute(
+                      'onclick'
+                    )
+                  )
               })
             )
             .slice(
               0,
-              3000
+              5000
+            );
+
+          const interactive = [
+            ...document.querySelectorAll(
+              [
+                'a',
+                'button',
+                '[role="button"]',
+                'input[type="submit"]',
+                'input[type="button"]',
+                '[onclick]'
+              ].join(',')
+            )
+          ]
+            .map(
+              element => ({
+                tag:
+                  element.tagName
+                    ?.toLowerCase() ||
+                  '',
+
+                text:
+                  clean(
+                    element.innerText ||
+                    element.textContent ||
+                    element.value
+                  ),
+
+                href:
+                  element.href ||
+                  element.getAttribute(
+                    'href'
+                  ) ||
+                  '',
+
+                ariaLabel:
+                  clean(
+                    element.getAttribute(
+                      'aria-label'
+                    )
+                  ),
+
+                title:
+                  clean(
+                    element.getAttribute(
+                      'title'
+                    )
+                  ),
+
+                id:
+                  clean(
+                    element.id
+                  ),
+
+                className:
+                  clean(
+                    element.className
+                  ),
+
+                onclick:
+                  clean(
+                    element.getAttribute(
+                      'onclick'
+                    )
+                  ),
+
+                dataTarget:
+                  clean(
+                    element.getAttribute(
+                      'data-target'
+                    ) ||
+                    element.getAttribute(
+                      'data-url'
+                    ) ||
+                    element.getAttribute(
+                      'data-href'
+                    )
+                  )
+              })
+            )
+            .slice(
+              0,
+              5000
+            );
+
+          const forms = [
+            ...document.forms
+          ]
+            .map(
+              form => ({
+                action:
+                  form.action ||
+                  '',
+
+                method:
+                  form.method ||
+                  '',
+
+                id:
+                  clean(
+                    form.id
+                  ),
+
+                className:
+                  clean(
+                    form.className
+                  ),
+
+                text:
+                  clean(
+                    form.innerText ||
+                    form.textContent
+                  )
+              })
+            )
+            .slice(
+              0,
+              500
+            );
+
+          const iframes = [
+            ...document.querySelectorAll(
+              'iframe'
+            )
+          ]
+            .map(
+              iframe => ({
+                src:
+                  iframe.src ||
+                  iframe.getAttribute(
+                    'src'
+                  ) ||
+                  '',
+
+                title:
+                  clean(
+                    iframe.getAttribute(
+                      'title'
+                    )
+                  ),
+
+                id:
+                  clean(
+                    iframe.id
+                  ),
+
+                className:
+                  clean(
+                    iframe.className
+                  )
+              })
+            )
+            .slice(
+              0,
+              500
             );
 
           const images = [
@@ -1765,6 +2148,12 @@ async function visit(
 
             links,
 
+            interactive,
+
+            forms,
+
+            iframes,
+
             images,
 
             metaDescription:
@@ -1793,7 +2182,8 @@ async function visit(
       );
 
     if (
-      data.text.length < 100 ||
+      data.text.length <
+        100 ||
       /captcha|access denied|verify you are human|robot check|unusual traffic|robot ou pas robot/i.test(
         firstText
       )
@@ -1820,9 +2210,7 @@ async function visit(
   } catch (error) {
     return unavailable(
       channel,
-      cleanError(
-        error
-      ),
+      cleanError(error),
       url
     );
 
@@ -1845,7 +2233,9 @@ async function retry(
     try {
       return await fn();
 
-    } catch (currentError) {
+    } catch (
+      currentError
+    ) {
       error =
         currentError;
 
@@ -1887,9 +2277,384 @@ function unavailable(
     links:
       [],
 
+    interactive:
+      [],
+
+    forms:
+      [],
+
+    iframes:
+      [],
+
     images:
       []
   };
+}
+
+/*
+|--------------------------------------------------------------------------
+| RÉSERVATION DIRECTE
+|--------------------------------------------------------------------------
+*/
+
+function isOtaUrl(
+  url
+) {
+  const host =
+    hostname(url);
+
+  if (!host) {
+    return false;
+  }
+
+  return OTA_DOMAINS.some(
+    domain =>
+      host === domain ||
+      host.endsWith(
+        `.${domain}`
+      )
+  );
+}
+
+function bookingSignalText(
+  item
+) {
+  return [
+    item?.text,
+    item?.href,
+    item?.ariaLabel,
+    item?.title,
+    item?.id,
+    item?.className,
+    item?.onclick,
+    item?.dataTarget
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function findDirectBookingSignal(
+  page,
+  hotel
+) {
+  if (!page?.ok) {
+    return null;
+  }
+
+  const officialHost =
+    hostname(
+      hotel.website ||
+      page.url
+    );
+
+  /*
+   * 1. Boutons et éléments cliquables.
+   */
+  for (
+    const item
+    of page.interactive ||
+    []
+  ) {
+    const text =
+      bookingSignalText(
+        item
+      );
+
+    if (
+      !BOOKING_WORDS.test(
+        text
+      )
+    ) {
+      continue;
+    }
+
+    const target =
+      item.href ||
+      item.dataTarget ||
+      '';
+
+    if (
+      target &&
+      isOtaUrl(
+        target
+      )
+    ) {
+      continue;
+    }
+
+    return {
+      type:
+        'interactive',
+
+      label:
+        item.text ||
+        item.ariaLabel ||
+        item.title ||
+        'Élément de réservation',
+
+      url:
+        target
+    };
+  }
+
+  /*
+   * 2. Liens classiques.
+   */
+  for (
+    const link
+    of page.links ||
+    []
+  ) {
+    const text =
+      bookingSignalText(
+        link
+      );
+
+    if (
+      !BOOKING_WORDS.test(
+        text
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      link.href &&
+      isOtaUrl(
+        link.href
+      )
+    ) {
+      continue;
+    }
+
+    return {
+      type:
+        'link',
+
+      label:
+        link.text ||
+        link.ariaLabel ||
+        link.title ||
+        'Lien de réservation',
+
+      url:
+        link.href ||
+        ''
+    };
+  }
+
+  /*
+   * 3. Formulaires de réservation.
+   */
+  for (
+    const form
+    of page.forms ||
+    []
+  ) {
+    const text = [
+      form.action,
+      form.id,
+      form.className,
+      form.text
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    if (
+      !BOOKING_WORDS.test(
+        text
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      form.action &&
+      isOtaUrl(
+        form.action
+      )
+    ) {
+      continue;
+    }
+
+    return {
+      type:
+        'form',
+
+      label:
+        'Formulaire de réservation',
+
+      url:
+        form.action ||
+        ''
+    };
+  }
+
+  /*
+   * 4. Iframes de moteurs externes.
+   */
+  for (
+    const iframe
+    of page.iframes ||
+    []
+  ) {
+    const text = [
+      iframe.src,
+      iframe.title,
+      iframe.id,
+      iframe.className
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const iframeHost =
+      hostname(
+        iframe.src
+      );
+
+    if (
+      iframe.src &&
+      isOtaUrl(
+        iframe.src
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      BOOKING_WORDS.test(
+        text
+      ) ||
+      (
+        iframeHost &&
+        officialHost &&
+        iframeHost !==
+          officialHost &&
+        /book|reserv|avail|room|hotel|engine|secure|booking/i.test(
+          text
+        )
+      )
+    ) {
+      return {
+        type:
+          'iframe',
+
+        label:
+          'Moteur de réservation intégré',
+
+        url:
+          iframe.src ||
+          ''
+      };
+    }
+  }
+
+  return null;
+}
+
+function findBookingEngineSignal(
+  page,
+  hotel
+) {
+  const direct =
+    findDirectBookingSignal(
+      page,
+      hotel
+    );
+
+  if (direct) {
+    return direct;
+  }
+
+  const officialHost =
+    hostname(
+      hotel.website ||
+      page.url
+    );
+
+  /*
+   * Un moteur externe peut être identifiable par son domaine,
+   * même si le texte du bouton est très court.
+   */
+  for (
+    const link
+    of page.links ||
+    []
+  ) {
+    const targetHost =
+      hostname(
+        link.href
+      );
+
+    if (
+      !targetHost ||
+      isOtaUrl(
+        link.href
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      officialHost &&
+      targetHost ===
+        officialHost
+    ) {
+      continue;
+    }
+
+    const text =
+      bookingSignalText(
+        link
+      );
+
+    if (
+      /book|booking|reserv|availab|disponibil|secure|roomcloud|reservit|vertical booking|d-edge|availpro|synxis|mews|cloudbeds|roomraccoon|amenitiz|little hotelier/i.test(
+        text
+      )
+    ) {
+      return {
+        type:
+          'external-engine',
+
+        label:
+          link.text ||
+          'Moteur de réservation externe',
+
+        url:
+          link.href ||
+          ''
+      };
+    }
+  }
+
+  return null;
+}
+
+function bookingEvidence(
+  signal
+) {
+  if (!signal) {
+    return '';
+  }
+
+  const parts = [
+    signal.label
+  ];
+
+  if (
+    signal.url
+  ) {
+    parts.push(
+      signal.url
+    );
+  }
+
+  return parts
+    .filter(Boolean)
+    .join(
+      ' — '
+    );
 }
 
 function buildChecks(
@@ -2070,34 +2835,32 @@ function buildChecks(
     )
   );
 
+  /*
+   * Réservation directe :
+   * désormais basée sur de vrais éléments interactifs.
+   */
   checks.push(
     checkOne(
       'direct',
       'Bouton de réservation directe',
       official,
       page =>
-        page.links.some(
-          link =>
-            /réserver|reserver|book now|reservation|disponibilit/i.test(
-              `${link.text} ${link.href}`
-            )
+        Boolean(
+          findDirectBookingSignal(
+            page,
+            hotel
+          )
         ),
-      'Aucun appel à l’action de réservation directe détecté.',
-      'Ajouter un bouton de réservation visible et accessible rapidement.',
+      'Aucun bouton, lien ou élément interactif de réservation directe n’a été détecté avec un niveau de confiance suffisant.',
+      'Ajouter un accès clair et visible à la réservation directe.',
       null,
-      page => {
-        const link =
-          page.links.find(
-            candidate =>
-              /réserver|reserver|book now|reservation|disponibilit/i.test(
-                `${candidate.text} ${candidate.href}`
-              )
-          );
-
-        return link
-          ? `${link.text || 'Lien réservation'} — ${link.href}`
-          : '';
-      }
+      page =>
+        bookingEvidence(
+          findDirectBookingSignal(
+            page,
+            hotel
+          )
+        )
     )
   );
 
@@ -2106,62 +2869,23 @@ function buildChecks(
       'direct',
       'Moteur de réservation',
       official,
-      page => {
-        const officialHost =
-          hostname(
-            hotel.website
-          );
-
-        return page.links.some(
-          link => {
-            const host =
-              hostname(
-                link.href
-              );
-
-            return (
-              /booking|reservation|availab|disponibil|book/i.test(
-                `${link.text} ${link.href}`
-              ) &&
-              host &&
-              host !==
-              officialHost
-            );
-          }
-        );
-      },
-      'Aucun moteur de réservation distinct n’a été détecté.',
+      page =>
+        Boolean(
+          findBookingEngineSignal(
+            page,
+            hotel
+          )
+        ),
+      'Aucun moteur ou parcours de réservation directe fiable n’a été détecté.',
       'Vérifier que le moteur de réservation directe est accessible, rapide et correctement relié au site.',
       null,
-      page => {
-        const officialHost =
-          hostname(
-            hotel.website
-          );
-
-        const link =
-          page.links.find(
-            candidate => {
-              const host =
-                hostname(
-                  candidate.href
-                );
-
-              return (
-                /booking|reservation|availab|disponibil|book/i.test(
-                  `${candidate.text} ${candidate.href}`
-                ) &&
-                host &&
-                host !==
-                officialHost
-              );
-            }
-          );
-
-        return link
-          ? link.href
-          : '';
-      }
+      page =>
+        bookingEvidence(
+          findBookingEngineSignal(
+            page,
+            hotel
+          )
+        )
     )
   );
 
@@ -2174,11 +2898,11 @@ function buildChecks(
         /\b\d{2,4}\s?(€|EUR)|€\s?\d{2,4}/i.test(
           page.text
         ) ||
-        page.links.some(
-          link =>
-            /tarif|prix|disponibil|réserver|reserver|book/i.test(
-              `${link.text} ${link.href}`
-            )
+        Boolean(
+          findDirectBookingSignal(
+            page,
+            hotel
+          )
         ),
       'Aucun prix public ni accès évident aux disponibilités n’a été détecté.',
       'Permettre au visiteur d’accéder immédiatement aux tarifs et disponibilités.',
@@ -2293,16 +3017,14 @@ function checkOne(
       category,
       label,
       page?.error ||
-      'Source inaccessible',
+        'Source inaccessible',
       page?.url
     );
   }
 
   const ok =
     Boolean(
-      test(
-        page
-      )
+      test(page)
     );
 
   let evidence =
@@ -2396,7 +3118,7 @@ function checkChannelPresence(
       'channel',
       label,
       page?.error ||
-      `${page.channel} inaccessible ou introuvable.`,
+        `${page.channel} inaccessible ou introuvable.`,
       page?.url
     );
   }
@@ -2456,7 +3178,7 @@ function compareHotelName(
       page => {
         const haystack =
           normalize(
-            `${page.title || ''} ${safeDecode(page.url || '')} ${(page.text || '').slice(0,6000)}`
+            `${page.title || ''} ${safeDecode(page.url || '')} ${(page.text || '').slice(0, 6000)}`
           );
 
         const matched =
@@ -2995,7 +3717,7 @@ function hotelMatchConfidence(
 
   const haystack =
     normalize(
-      `${page.title || ''} ${safeDecode(page.url || '')} ${(page.text || '').slice(0,6000)}`
+      `${page.title || ''} ${safeDecode(page.url || '')} ${(page.text || '').slice(0, 6000)}`
     );
 
   const matched =
@@ -3152,6 +3874,7 @@ function hostname(
       url
     )
       .hostname
+      .toLowerCase()
       .replace(
         /^www\./,
         ''
