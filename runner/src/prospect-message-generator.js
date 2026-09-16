@@ -422,7 +422,10 @@ function buildMessage(prospect) {
     '',
     `Votre OTA Score ressort actuellement à ${score}/100.`,
     '',
-    'Si vous le souhaitez, je peux vous envoyer gratuitement les 3 principaux points relevés sur votre établissement. Ça tient sur une page et il n’y a rien à installer.',
+    'Si vous le souhaitez, vous pouvez faire gratuitement votre OTA Score ici'
+    ': https://ota.imiloc.com',
+    '',
+    'Le test prend quelques minutes et vous donne votre score ainsi que les 3 principaux points relevés sur votre établissement. Il n’y a rien à installer.',
     '',
     'Bien à vous,',
     'OTA Audit France',
