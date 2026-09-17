@@ -53,8 +53,7 @@ jobs:
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_TARGETS_PER_RUN: '1'
-          PROSPECT_MAX_PER_RUN: '100'
+          PROSPECT_AREAS_PER_COUNTRY: '2'
         run: node src/prospect-finder.js
 
       - name: Auditer 10 prospects commerciaux
