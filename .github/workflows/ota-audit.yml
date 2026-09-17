@@ -17,7 +17,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -43,20 +43,11 @@ jobs:
         working-directory: runner
         run: npx playwright install --with-deps chromium
 
-      - name: Tester le prospecteur international
-        if: github.event_name == 'workflow_dispatch'
-        working-directory: runner
-        env:
-          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
-          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_AREAS_PER_COUNTRY: '1'
-        run: node src/prospect-finder.js
-        
       # ---------------------------------------------------------
-      # PROSPECTION QUOTIDIENNE
+      # PROSPECTION AUTOMATIQUE QUOTIDIENNE
       # ---------------------------------------------------------
 
-      - name: Trouver de nouveaux hôtels
+      - name: Trouver hôtels France Royaume-Uni États-Unis
         if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
@@ -65,16 +56,16 @@ jobs:
           PROSPECT_AREAS_PER_COUNTRY: '1'
         run: node src/prospect-finder.js
 
-      - name: Auditer 10 prospects commerciaux
+      - name: Auditer les prospects
         if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_AUDIT_LIMIT: '10'
+          PROSPECT_AUDIT_LIMIT: '20'
         run: node src/prospect-auditor.js
 
-      - name: Générer jusqu'à 10 messages commerciaux
+      - name: Générer les messages commerciaux
         if: github.event.schedule == '17 6 * * *'
         working-directory: runner
         env:
@@ -83,7 +74,7 @@ jobs:
           PROSPECT_MESSAGE_LIMIT: '10'
         run: node src/prospect-message-generator.js
 
-      - name: Envoyer maximum 10 emails commerciaux
+      - name: Envoyer les emails commerciaux
         if: github.event.schedule == '17 6 * * *'
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
@@ -95,7 +86,7 @@ jobs:
             "$OTA_BASE_URL/automation/send-prospect-emails.php"
 
       # ---------------------------------------------------------
-      # AUDITS CLIENTS
+      # AUDITS CLIENTS EXISTANTS
       # ---------------------------------------------------------
 
       - name: Exécuter les audits clients
@@ -105,7 +96,7 @@ jobs:
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
         run: npm run audit
 
-      - name: Finaliser les audits et envoyer les emails clients
+      - name: Finaliser les audits clients
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
