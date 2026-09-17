@@ -43,6 +43,15 @@ jobs:
         working-directory: runner
         run: npx playwright install --with-deps chromium
 
+      - name: Tester le prospecteur international
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: runner
+        env:
+          OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
+          OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
+          PROSPECT_AREAS_PER_COUNTRY: '2'
+        run: node src/prospect-finder.js
+        
       # ---------------------------------------------------------
       # PROSPECTION QUOTIDIENNE
       # ---------------------------------------------------------
