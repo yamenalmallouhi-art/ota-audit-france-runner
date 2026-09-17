@@ -475,8 +475,7 @@ async function sendProspects(
     await fetch(
       `${baseUrl()}/automation/prospects-ingest.php`,
       {
-        method:
-          'POST',
+        method: 'POST',
 
         headers: {
           authorization:
@@ -485,8 +484,11 @@ async function sendProspects(
           'content-type':
             'application/json',
 
+          'accept':
+            'application/json,text/plain,*/*',
+
           'user-agent':
-            'OTA-Audit-France-Prospect-Finder/2.0'
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
         },
 
         body:
@@ -501,7 +503,7 @@ async function sendProspects(
 
   if (!response.ok) {
     throw new Error(
-      `Ingest HTTP ${response.status}: ${text.slice(0, 1000)}`
+      `Ingest HTTP ${response.status}: ${text.slice(0, 1500)}`
     );
   }
 
@@ -510,11 +512,10 @@ async function sendProspects(
 
   } catch {
     throw new Error(
-      `Réponse ingest invalide: ${text.slice(0, 1000)}`
+      `Réponse ingest invalide: ${text.slice(0, 1500)}`
     );
   }
 }
-
 function areaForToday(
   country,
   offset = 0
