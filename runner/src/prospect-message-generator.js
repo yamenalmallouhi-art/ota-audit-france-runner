@@ -538,7 +538,7 @@ async function main() {
    */
   const candidates =
     await getCandidates(
-      50
+      150
     );
 
   console.log(
