@@ -522,7 +522,7 @@ async function main() {
     Math.max(
       1,
       Math.min(
-        10,
+        99,
         Number(
           env(
             'PROSPECT_MESSAGE_LIMIT',
