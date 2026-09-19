@@ -53,7 +53,7 @@ jobs:
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_AREAS_PER_COUNTRY: '1'
+          PROSPECT_AREAS_PER_COUNTRY: '5'
         run: node src/prospect-finder.js
 
       - name: Auditer les prospects
