@@ -62,7 +62,7 @@ jobs:
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_AUDIT_LIMIT: '20'
+          PROSPECT_AUDIT_LIMIT: '120'
         run: node src/prospect-auditor.js
 
       - name: Générer les messages commerciaux
@@ -71,7 +71,7 @@ jobs:
         env:
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_RUNNER_TOKEN: ${{ secrets.OTA_RUNNER_TOKEN }}
-          PROSPECT_MESSAGE_LIMIT: '10'
+          PROSPECT_MESSAGE_LIMIT: '99'
         run: node src/prospect-message-generator.js
 
       - name: Envoyer les emails commerciaux
